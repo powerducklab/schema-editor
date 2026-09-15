@@ -68,6 +68,7 @@ import type {
   Diagnostic,
   EditorLanguage,
   EditorTheme,
+  JsonPath,
   JsonSchema,
 } from "../types";
 
@@ -1367,10 +1368,11 @@ function DiagnosticsBar({ editorRef, monaco: monacoRef, language, editorReady, s
        * the object schema and property schema through the core layer.
        */
       let sampleValue: unknown = "";
+      let objectPath: JsonPath = [];
       try {
         const root = isSchemaObject(schema) ? schema : {};
         const location = getLocation(fullText, markerOffset);
-        let objectPath = location.path;
+        objectPath = location.path as JsonPath;
 
         /*
          * If the marker is inside the object (path has an extra segment such
@@ -1404,15 +1406,18 @@ function DiagnosticsBar({ editorRef, monaco: monacoRef, language, editorReady, s
       if (isYaml) {
         /*
          * YAML: insert the property inside the marker's object block.
-         * Find the marker line's indent, then scan down to find the next
-         * line at the same or lower indent (the end of this block).
-         * Insert right before that line.
+         * Indent is derived from the object path depth (2 spaces per level),
+         * not the marker line's indent — root-level markers sit at the end of
+         * the document where the last line may be deeply indented.
          */
-        const markerLineContent = model.getLineContent(marker.startLineNumber);
-        const indentMatch = markerLineContent.match(/^(\s*)/);
-        const indent = indentMatch?.[1]?.length ?? 0;
+        const indent = objectPath.length * 2;
 
-        /* Find the end of this block: next line with indent <= marker indent. */
+        /*
+         * Find the insertion line: scan down from the marker line to find the
+         * next non-blank line at indent <= the object's property indent. For
+         * root-level markers at end-of-document, this naturally yields
+         * lineCount + 1.
+         */
         let insertLine = marker.startLineNumber + 1;
         for (let line = marker.startLineNumber + 1; line <= model.getLineCount(); line += 1) {
           const lineContent = model.getLineContent(line);
@@ -1440,136 +1445,66 @@ function DiagnosticsBar({ editorRef, monaco: monacoRef, language, editorReady, s
         ]);
       } else {
         /*
-         * JSON: find the object that contains the marker, locate its closing
-         * brace, and insert the property before that brace.
-         *
-         * Strategy:
-         *   1. From the marker offset, scan forward to find the opening '{'
-         *      of this object (skipping whitespace, colon, and the key).
-         *   2. From that '{', track brace depth to find the matching '}'.
-         *   3. Find the last non-whitespace character before that '}'.
-         *   4. Insert right after that character with proper indentation.
+         * JSON: locate the target object via the document index using the
+         * object's JSON path (derived from the marker position). This is more
+         * robust than scanning braces from the marker offset, because the
+         * marker for root-level errors sits after the closing brace.
          */
+        const jsonIndex = buildJsonIndex(fullText);
+        let targetNode = jsonIndex.findNode(objectPath);
 
-        /* Step 1: find the opening '{' of the marker's object. */
-        let openBraceOffset = -1;
-        let inString = false;
-        let stringChar = "";
-        let escaped = false;
-
-        for (let i = markerOffset; i < fullText.length; i += 1) {
-          const ch = fullText[i]!;
-          if (inString) {
-            if (escaped) escaped = false;
-            else if (ch === "\\") escaped = true;
-            else if (ch === stringChar) inString = false;
-            continue;
-          }
-          if (ch === '"' || ch === "'") {
-            inString = true;
-            stringChar = ch;
-            continue;
-          }
-          if (ch === "{") {
-            openBraceOffset = i;
-            break;
-          }
-          if (ch === "}" || ch === "]") {
-            /* Hit a closing brace before finding opening — marker is at key
-               position without a value. Use the marker line indent. */
-            break;
-          }
+        /* Fall back to root if path lookup fails (e.g. marker past end of doc). */
+        if (!targetNode || targetNode.type !== "object") {
+          targetNode = jsonIndex.root;
         }
 
-        /* Step 2: find the matching closing '}'. */
-        let closeBraceOffset = -1;
-        if (openBraceOffset >= 0) {
-          let depth = 0;
-          inString = false;
-          escaped = false;
-
-          for (let i = openBraceOffset; i < fullText.length; i += 1) {
-            const ch = fullText[i]!;
-            if (inString) {
-              if (escaped) escaped = false;
-              else if (ch === "\\") escaped = true;
-              else if (ch === stringChar) inString = false;
-              continue;
-            }
-            if (ch === '"' || ch === "'") {
-              inString = true;
-              stringChar = ch;
-              continue;
-            }
-            if (ch === "{" || ch === "[") {
-              depth += 1;
-            } else if (ch === "}" || ch === "]") {
-              depth -= 1;
-              if (depth === 0 && ch === "}") {
-                closeBraceOffset = i;
-                break;
-              }
-            }
-          }
+        if (!targetNode || targetNode.type !== "object") {
+          editor.pushUndoStop();
+          return;
         }
 
-        /* Determine the indent for the new property. */
-        const markerLineContent = model.getLineContent(marker.startLineNumber);
-        const markerIndent = markerLineContent.match(/^(\s*)/)?.[1]?.length ?? 0;
-        const propertyIndent = markerIndent + 2;
+        /* The closing brace is the last character of the object node. */
+        const closeBraceOffset = targetNode.offset + targetNode.length - 1;
+
+        /* Indent from the line containing the opening brace. */
+        const openBracePos = model.getPositionAt(targetNode.offset);
+        const openBraceLine = model.getLineContent(openBracePos.lineNumber);
+        const objectIndent = openBraceLine.match(/^(\s*)/)?.[1]?.length ?? 0;
+        const propertyIndentValue = objectIndent + 2;
 
         const jsonValue = JSON.stringify(sampleValue);
 
-        if (closeBraceOffset >= 0) {
-          /* Step 3: find the last non-whitespace character before the closing '}'. */
-          const beforeBrace = fullText.slice(0, closeBraceOffset);
-          const lastNonWsMatch = beforeBrace.match(/\S(?=\s*$)/);
+        /* Find the last non-whitespace character before the closing '}'. */
+        const beforeBrace = fullText.slice(0, closeBraceOffset);
+        const lastNonWsMatch = beforeBrace.match(/\S(?=\s*$)/);
 
-          if (!lastNonWsMatch) {
-            /* Empty object: insert inside the braces. */
-            const pos = model.getPositionAt(closeBraceOffset);
-            editor.executeEdits("schema-editor-fix", [
-              {
-                range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
-                text: `\n${" ".repeat(propertyIndent)}"${propertyName}": ${jsonValue}\n${" ".repeat(markerIndent)}`,
-                forceMoveMarkers: true,
-              },
-            ]);
-          } else {
-            const lastNonWsChar = lastNonWsMatch[0]!;
-            const lastNonWsOffset = beforeBrace.lastIndexOf(lastNonWsChar);
-            const insertOffset = lastNonWsOffset + 1;
-            const insertPos = model.getPositionAt(insertOffset);
-            const needsComma = lastNonWsChar !== "," && lastNonWsChar !== "{";
-
-            const prefix = needsComma ? "," : "";
-            const insertText = `${prefix}\n${" ".repeat(propertyIndent)}"${propertyName}": ${jsonValue}`;
-
-            editor.executeEdits("schema-editor-fix", [
-              {
-                range: new monaco.Range(
-                  insertPos.lineNumber,
-                  insertPos.column,
-                  insertPos.lineNumber,
-                  insertPos.column,
-                ),
-                text: insertText,
-                forceMoveMarkers: true,
-              },
-            ]);
-          }
+        if (!lastNonWsMatch) {
+          /* Empty object: insert inside the braces. */
+          const pos = model.getPositionAt(closeBraceOffset);
+          editor.executeEdits("schema-editor-fix", [
+            {
+              range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
+              text: `\n${" ".repeat(propertyIndentValue)}"${propertyName}": ${jsonValue}\n${" ".repeat(objectIndent)}`,
+              forceMoveMarkers: true,
+            },
+          ]);
         } else {
-          /* Fallback: could not find the object braces. Insert at marker line
-             with proper indent, replacing the line content if it's just a key. */
-          const insertText = `\n${" ".repeat(propertyIndent)}"${propertyName}": ${jsonValue}`;
-          const lineMaxCol = model.getLineMaxColumn(marker.startLineNumber);
+          const lastNonWsChar = lastNonWsMatch[0]!;
+          const lastNonWsOffset = beforeBrace.lastIndexOf(lastNonWsChar);
+          const insertOffset = lastNonWsOffset + 1;
+          const insertPos = model.getPositionAt(insertOffset);
+          const needsComma = lastNonWsChar !== "," && lastNonWsChar !== "{";
+
+          const prefix = needsComma ? "," : "";
+          const insertText = `${prefix}\n${" ".repeat(propertyIndentValue)}"${propertyName}": ${jsonValue}`;
+
           editor.executeEdits("schema-editor-fix", [
             {
               range: new monaco.Range(
-                marker.startLineNumber,
-                lineMaxCol,
-                marker.startLineNumber,
-                lineMaxCol,
+                insertPos.lineNumber,
+                insertPos.column,
+                insertPos.lineNumber,
+                insertPos.column,
               ),
               text: insertText,
               forceMoveMarkers: true,
