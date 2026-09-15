@@ -359,13 +359,45 @@ export function resolveJsonCompletionContext(
   const hasTerminatorAfter =
     after.char === "" || after.char === "," || after.char === "}" || after.char === "]";
 
+  /*
+   * When the cursor is on whitespace inside an object (blank line, or after
+   * a property value before the closing brace), the user is about to type a
+   * new property key. jsonc-parser's getLocation is inconsistent here: for
+   * the root object it returns path ending with "", but for nested objects it
+   * returns the object's own path (no trailing ""). We therefore use
+   * findNodeAtOffset to directly detect the container: no token node + the
+   * nearest containing node is an object => property-key context.
+   *
+   * We also re-query getLocation just inside the container's opening brace to
+   * obtain a path with a trailing "", which keeps containerPath derivation
+   * uniform (slice off the last segment).
+   */
+  let effectiveLocation = location;
+  let insideObjectBlank = false;
+
+  if (!token.node) {
+    const containerNode = index.findNodeAtOffset(offset);
+    if (
+      containerNode &&
+      containerNode.type === "object" &&
+      offset >= containerNode.offset &&
+      offset <= containerNode.offset + containerNode.length
+    ) {
+      insideObjectBlank = true;
+      effectiveLocation = getLocation(text, containerNode.offset + 1);
+    }
+  }
+
   const onKey =
-    location.isAtPropertyKey || isPropertyKeyNode(token.node) || (!token.node && hasColonAfter);
+    location.isAtPropertyKey ||
+    isPropertyKeyNode(token.node) ||
+    (!token.node && hasColonAfter) ||
+    insideObjectBlank;
 
   let context: CompletionContext;
 
   if (onKey) {
-    const containerPath = location.path.slice(0, -1) as JsonPath;
+    const containerPath = effectiveLocation.path.slice(0, -1) as JsonPath;
     const containerNode = index.findNode(containerPath);
 
     if (containerNode && containerNode.type !== "object") {
@@ -378,16 +410,24 @@ export function resolveJsonCompletionContext(
 
     const existingKeys = getObjectKeys(containerNode).filter((key) => key !== token.word);
 
+    /*
+     * When the cursor is on whitespace inside an object, token.start/end may
+     * point at the previous token (on a different line). Use the cursor offset
+     * so that propertyIndent and insertText positioning use the correct line.
+     */
+    const effectiveReplaceStart = insideObjectBlank ? offset : token.start;
+    const effectiveReplaceEnd = insideObjectBlank ? offset : token.end;
+
     context = {
       kind: "property-key",
       containerPath,
-      valuePath: location.path as JsonPath,
+      valuePath: effectiveLocation.path as JsonPath,
       containerSchemas,
       valueSchemas: [],
       existingKeys,
       currentWord: token.word,
-      replaceStart: token.start,
-      replaceEnd: token.end,
+      replaceStart: effectiveReplaceStart,
+      replaceEnd: effectiveReplaceEnd,
       insideQuotes: token.insideQuotes,
       hasColonAfter,
       hasTerminatorAfter,

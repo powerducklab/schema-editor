@@ -360,4 +360,188 @@ describe("json/completion", () => {
       expect(nameSuggestion?.insertText).not.toContain("https://");
     });
   });
+
+  describe("object interior whitespace completion", () => {
+    const OAS_SCHEMA: JsonSchemaObject = {
+      type: "object",
+      required: ["openapi", "info"],
+      properties: {
+        openapi: { type: "string", enum: ["3.2.0"] },
+        info: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            version: { type: "string" },
+            license: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                url: { type: "string", format: "uri" },
+              },
+            },
+          },
+        },
+        paths: { type: "object" },
+        tags: { type: "array", items: { type: "object", properties: { name: { type: "string" } } } },
+      },
+    };
+
+    /** Join lines with newlines. Use explicit spaces for indented blank lines. */
+    function doc(...lines: string[]): string {
+      return lines.join("\n");
+    }
+
+    function offsetAt(text: string, line: number, col: number): number {
+      const lines = text.split("\n");
+      let offset = 0;
+      for (let i = 0; i < line; i += 1) offset += lines[i]!.length + 1;
+      return offset + col;
+    }
+
+    it("offers property-key on blank line inside root object", () => {
+      const text = doc("{", '  "openapi": "3.2.0",', "  ", "}");
+      const offset = offsetAt(text, 2, 2);
+      const context = resolveJsonCompletionContext(text, offset, OAS_SCHEMA);
+
+      expect(context.kind).toBe("property-key");
+      expect(context.containerPath).toEqual([]);
+    });
+
+    it("offers property-key on blank line inside nested object", () => {
+      const text = doc("{", '  "info": {', '    "title": "API",', "    ", "  }", "}");
+      const offset = offsetAt(text, 3, 2);
+      const context = resolveJsonCompletionContext(text, offset, OAS_SCHEMA);
+
+      expect(context.kind).toBe("property-key");
+      expect(context.containerPath).toEqual(["info"]);
+    });
+
+    it("offers nested object properties on blank line inside nested object", () => {
+      const text = doc("{", '  "info": {', '    "title": "API",', "    ", "  }", "}");
+      const offset = offsetAt(text, 3, 2);
+      const context = resolveJsonCompletionContext(text, offset, OAS_SCHEMA);
+      const suggestions = getJsonCompletions(text, context, OAS_SCHEMA);
+      const labels = suggestions.map((s) => s.label);
+
+      expect(labels).toContain("version");
+      expect(labels).toContain("license");
+      expect(labels).not.toContain("paths");
+    });
+
+    it("excludes already-used properties on blank line", () => {
+      const text = doc("{", '  "openapi": "3.2.0",', '  "info": {},', "  ", "}");
+      const offset = offsetAt(text, 3, 2);
+      const context = resolveJsonCompletionContext(text, offset, OAS_SCHEMA);
+      const suggestions = getJsonCompletions(text, context, OAS_SCHEMA);
+      const labels = suggestions.map((s) => s.label);
+
+      expect(labels).not.toContain("openapi");
+      expect(labels).not.toContain("info");
+      expect(labels).toContain("paths");
+      expect(labels).toContain("tags");
+    });
+
+    it("generates correct indent for nested object blank line", () => {
+      const text = doc("{", '  "info": {', '    "title": "API",', "    ", "  }", "}");
+      const offset = offsetAt(text, 3, 2);
+      const context = resolveJsonCompletionContext(text, offset, OAS_SCHEMA);
+      const suggestions = getJsonCompletions(text, context, OAS_SCHEMA);
+      const version = suggestions.find((s) => s.label === "version");
+
+      expect(version).toBeDefined();
+      /* Cursor is already on a new indented line, so no leading newline. */
+      expect(version?.insertText).not.toMatch(/^\n/);
+      expect(version?.insertText).toContain('"version":');
+    });
+
+    it("offers property-key on blank line inside array item object", () => {
+      const text = doc("{", '  "tags": [', "    {", "      ", "    }", "  ]", "}");
+      const offset = offsetAt(text, 3, 4);
+      const context = resolveJsonCompletionContext(text, offset, OAS_SCHEMA);
+
+      expect(context.kind).toBe("property-key");
+      expect(context.containerPath).toEqual(["tags", 0]);
+    });
+
+    it("offers array item schema properties on blank line", () => {
+      const text = doc("{", '  "tags": [', "    {", "      ", "    }", "  ]", "}");
+      const offset = offsetAt(text, 3, 4);
+      const context = resolveJsonCompletionContext(text, offset, OAS_SCHEMA);
+      const suggestions = getJsonCompletions(text, context, OAS_SCHEMA);
+      const labels = suggestions.map((s) => s.label);
+
+      expect(labels).toContain("name");
+    });
+
+    it("generates {} for object type completion", () => {
+      const text = doc("{", '  "openapi": "3.2.0",', "  ", "}");
+      const offset = offsetAt(text, 2, 2);
+      const context = resolveJsonCompletionContext(text, offset, OAS_SCHEMA);
+      const suggestions = getJsonCompletions(text, context, OAS_SCHEMA);
+      const paths = suggestions.find((s) => s.label === "paths");
+
+      expect(paths).toBeDefined();
+      expect(paths?.insertText).toContain('"paths": {}');
+    });
+
+    it("generates [] for array type completion", () => {
+      const text = doc("{", '  "openapi": "3.2.0",', "  ", "}");
+      const offset = offsetAt(text, 2, 2);
+      const context = resolveJsonCompletionContext(text, offset, OAS_SCHEMA);
+      const suggestions = getJsonCompletions(text, context, OAS_SCHEMA);
+      const tags = suggestions.find((s) => s.label === "tags");
+
+      expect(tags).toBeDefined();
+      expect(tags?.insertText).toContain('"tags": []');
+    });
+
+    it("offers property-key after comma on same line", () => {
+      const text = doc("{", '  "openapi": "3.2.0",', "}");
+      const offset = offsetAt(text, 1, 22);
+      const context = resolveJsonCompletionContext(text, offset, OAS_SCHEMA);
+
+      expect(context.kind).toBe("property-key");
+    });
+
+    it("inline suggestion on blank line with single remaining property", () => {
+      /* Use a schema with only one unused property so ghost text is unambiguous. */
+      const singleSchema: JsonSchemaObject = {
+        type: "object",
+        properties: {
+          openapi: { type: "string" },
+          paths: { type: "object" },
+        },
+      };
+      const text = doc("{", '  "openapi": "3.2.0",', "  ", "}");
+      const offset = offsetAt(text, 2, 2);
+      const context = resolveJsonCompletionContext(text, offset, singleSchema);
+      const suggestion = getJsonInlineSuggestion(text, context, singleSchema);
+
+      expect(suggestion).toBeDefined();
+      expect(suggestion?.insertText).toContain("paths");
+    });
+
+    it("deeply nested object blank line uses correct container", () => {
+      const text = doc(
+        "{",
+        '  "info": {',
+        '    "license": {',
+        '      "name": "MIT",',
+        "      ",
+        "    }",
+        "  }",
+        "}",
+      );
+      const offset = offsetAt(text, 4, 4);
+      const context = resolveJsonCompletionContext(text, offset, OAS_SCHEMA);
+
+      expect(context.kind).toBe("property-key");
+      expect(context.containerPath).toEqual(["info", "license"]);
+
+      const suggestions = getJsonCompletions(text, context, OAS_SCHEMA);
+      const labels = suggestions.map((s) => s.label);
+      expect(labels).toContain("url");
+      expect(labels).not.toContain("name");
+    });
+  });
 });
