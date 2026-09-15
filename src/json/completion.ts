@@ -441,12 +441,15 @@ interface Placeholder {
 
 function placeholderFor(
   schema: JsonSchemaObject,
-  _root: JsonSchemaObject,
+  root: JsonSchemaObject,
   _indentSize: number,
 ): Placeholder {
   const explicit = firstDefined(
     schema.const,
     schema.default,
+    Array.isArray(schema.examples) && schema.examples.length > 0
+      ? schema.examples[0]
+      : undefined,
     Array.isArray(schema.enum) && schema.enum.length > 0 ? schema.enum[0] : undefined,
   );
 
@@ -457,6 +460,23 @@ function placeholderFor(
 
   const types = getSchemaTypes(schema);
   const type = types[0];
+
+  /*
+   * For strings with a format, generate a meaningful sample value
+   * (e.g. uri -> "https://example.com", email -> "user@example.com").
+   * generateSample is cached via WeakMap, so this is cheap.
+   */
+  if (type === "string" && schema.format) {
+    try {
+      const sample = generateSample(schema, root);
+      if (typeof sample === "string" && sample.length > 0) {
+        const text = JSON.stringify(sample);
+        return { text, caretOffset: text.length };
+      }
+    } catch {
+      /* Fall through to empty string placeholder. */
+    }
+  }
 
   switch (type) {
     case "object":

@@ -117,10 +117,18 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
-  color: var(--color-text-tertiary, #989da5);
-  transition: transform var(--transition-fast, 140ms ease);
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-xs, 3px);
+  color: var(--color-text-secondary, #6f747c);
+  transition: transform var(--transition-fast, 140ms ease),
+    background var(--transition-fast, 140ms ease),
+    color var(--transition-fast, 140ms ease);
+}
+
+.pde-diagnostics-bar:hover .pde-diagnostics-chevron {
+  background: var(--color-surface-hover, #f4f5f6);
+  color: var(--color-text-primary, #26282b);
 }
 
 .pde-diagnostics-chevron.open {

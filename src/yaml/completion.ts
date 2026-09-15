@@ -353,6 +353,9 @@ function buildKeySuggestions(
       const explicit = firstDefined(
         property.schema.const,
         property.schema.default,
+        Array.isArray(property.schema.examples) && property.schema.examples.length > 0
+          ? property.schema.examples[0]
+          : undefined,
         Array.isArray(property.schema.enum) && property.schema.enum.length > 0
           ? property.schema.enum[0]
           : undefined,
@@ -361,6 +364,24 @@ function buildKeySuggestions(
       if (explicit !== undefined) {
         insertText += ` ${toYamlScalar(explicit)}`;
         caretOffset = insertText.length;
+      } else if (
+        types.includes("string") &&
+        property.schema.format
+      ) {
+        /* Generate a meaningful sample for formatted strings (uri, email, etc.). */
+        try {
+          const sample = generateSample(property.schema, root);
+          if (typeof sample === "string" && sample.length > 0) {
+            insertText += ` ${toYamlScalar(sample)}`;
+            caretOffset = insertText.length;
+          } else {
+            insertText += " ";
+            caretOffset = insertText.length;
+          }
+        } catch {
+          insertText += " ";
+          caretOffset = insertText.length;
+        }
       } else {
         insertText += " ";
         caretOffset = insertText.length;

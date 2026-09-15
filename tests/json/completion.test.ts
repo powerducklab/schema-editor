@@ -287,4 +287,77 @@ describe("json/completion", () => {
       expect(suggestion).toBeDefined();
     });
   });
+
+  describe("placeholder value generation", () => {
+    it("generates sample for string with uri format", () => {
+      const schema: JsonSchemaObject = {
+        type: "object",
+        properties: {
+          url: { type: "string", format: "uri" },
+        },
+      };
+      const text = "{}";
+      const offset = 1;
+      const context = resolveJsonCompletionContext(text, offset, schema);
+      const suggestions = getJsonCompletions(text, context, schema);
+      const urlSuggestion = suggestions.find((s) => s.label === "url");
+
+      expect(urlSuggestion).toBeDefined();
+      expect(urlSuggestion?.insertText).toContain("https://");
+      expect(urlSuggestion?.insertText).not.toBe("\"url\": \"\"");
+    });
+
+    it("generates sample for string with email format", () => {
+      const schema: JsonSchemaObject = {
+        type: "object",
+        properties: {
+          email: { type: "string", format: "email" },
+        },
+      };
+      const text = "{}";
+      const offset = 1;
+      const context = resolveJsonCompletionContext(text, offset, schema);
+      const suggestions = getJsonCompletions(text, context, schema);
+      const emailSuggestion = suggestions.find((s) => s.label === "email");
+
+      expect(emailSuggestion).toBeDefined();
+      expect(emailSuggestion?.insertText).toContain("@");
+    });
+
+    it("uses examples array first value", () => {
+      const schema: JsonSchemaObject = {
+        type: "object",
+        properties: {
+          region: { type: "string", examples: ["us-east-1", "eu-west-1"] },
+        },
+      };
+      const text = "{}";
+      const offset = 1;
+      const context = resolveJsonCompletionContext(text, offset, schema);
+      const suggestions = getJsonCompletions(text, context, schema);
+      const regionSuggestion = suggestions.find((s) => s.label === "region");
+
+      expect(regionSuggestion).toBeDefined();
+      expect(regionSuggestion?.insertText).toContain("us-east-1");
+    });
+
+    it("keeps empty string for plain string without format", () => {
+      const schema: JsonSchemaObject = {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+        },
+      };
+      const text = "{}";
+      const offset = 1;
+      const context = resolveJsonCompletionContext(text, offset, schema);
+      const suggestions = getJsonCompletions(text, context, schema);
+      const nameSuggestion = suggestions.find((s) => s.label === "name");
+
+      expect(nameSuggestion).toBeDefined();
+      /* Insert text includes leading newline + indent when inside {}. */
+      expect(nameSuggestion?.insertText).toContain('"name": ""');
+      expect(nameSuggestion?.insertText).not.toContain("https://");
+    });
+  });
 });

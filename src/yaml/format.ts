@@ -26,12 +26,19 @@ export function formatYaml(text: string): string {
   try {
     const parsed = load(text);
     if (parsed !== null && parsed !== undefined) {
-      const formatted = dump(parsed, {
+      let formatted = dump(parsed, {
         indent: INDENT_SIZE,
         lineWidth: -1,
         noRefs: true,
         sortKeys: false,
       });
+      /*
+       * js-yaml parses empty values (`key:`) as null and dumps them as
+       * `key: null`. Restore the empty-value form since it is semantically
+       * equivalent and preferred by users. Only matches end-of-line nulls
+       * (optionally followed by a comment), never nulls inside strings.
+       */
+      formatted = formatted.replace(/: null(\s*(?:#.*)?)$/gm, ":$1");
       /* js-yaml dump adds a trailing newline; preserve original ending. */
       const endsWithNewline = text.endsWith("\n");
       return endsWithNewline ? formatted : formatted.replace(/\n$/, "");

@@ -153,4 +153,37 @@ describe("formatYaml", () => {
       expect(twice).toBe(once);
     });
   });
+
+  describe("empty value preservation", () => {
+    it("preserves empty values instead of converting to null", () => {
+      const input = "openapi: 3.2.0\ninfo:\nservers:\npaths:\n";
+      const result = formatYaml(input);
+      expect(result).toContain("info:");
+      expect(result).toContain("servers:");
+      expect(result).toContain("paths:");
+      expect(result).not.toContain("info: null");
+      expect(result).not.toContain("servers: null");
+      expect(result).not.toContain("paths: null");
+    });
+
+    it("preserves empty values with trailing whitespace", () => {
+      const input = "key:   \nother: value\n";
+      const result = formatYaml(input);
+      expect(result).toContain("key:");
+      expect(result).not.toContain("key: null");
+    });
+
+    it("does not convert intentional null values in strings", () => {
+      const input = 'key: "this is null"\nother: value\n';
+      const result = formatYaml(input);
+      expect(result).toContain("this is null");
+    });
+
+    it("preserves empty values in nested objects", () => {
+      const input = "root:\n  child:\n  other: value\n";
+      const result = formatYaml(input);
+      expect(result).toContain("child:");
+      expect(result).not.toContain("child: null");
+    });
+  });
 });
