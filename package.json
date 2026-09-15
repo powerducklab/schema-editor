@@ -1,0 +1,113 @@
+{
+  "name": "@powerduck/schema-editor",
+  "version": "0.1.0",
+  "description": "Schema-aware Monaco editor for JSON, YAML and JavaScript. Driven by any JSON Schema with ghost text, popup completion, enum dropdowns, example auto-fill, and schema diagnostics.",
+  "keywords": [
+    "monaco",
+    "editor",
+    "json-schema",
+    "openapi",
+    "yaml",
+    "json",
+    "autocomplete",
+    "ghost-text",
+    "code-completion",
+    "react"
+  ],
+  "license": "MIT",
+  "author": "Powerduck limited",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/powerducklab/schema-editor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/powerducklab/schema-editor/issues"
+  },
+  "homepage": "https://www.powerduck.com/",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "require": "./dist/react.cjs",
+      "default": "./dist/react.js"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "import": "./dist/core.js",
+      "require": "./dist/core.cjs",
+      "default": "./dist/core.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsc --noEmit && tsup",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist coverage",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "verify:cjs": "node -e \"const m = require('./dist/index.cjs'); if (typeof m.resolveSchemas !== 'function') throw new Error('CJS build missing resolveSchemas'); console.log('cjs ok');\"",
+    "verify:esm": "node -e \"import('./dist/index.js').then((m) => { if (typeof m.resolveSchemas !== 'function') throw new Error('ESM build missing resolveSchemas'); console.log('esm ok'); });\"",
+    "verify": "npm run verify:cjs && npm run verify:esm",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "js-yaml": "^5.4.2",
+    "json-schema-faker": "^0.6.3",
+    "jsonc-parser": "^3.3.1"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "@monaco-editor/react": {
+      "optional": true
+    },
+    "monaco-editor": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.19.43",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitest/coverage-v8": "^3.2.7",
+    "monaco-editor": "^0.56.0",
+    "terser": "^5.51.2",
+    "tsup": "^8.1.0",
+    "typescript": "^5.5.0",
+    "vitest": "^3.2.7"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
