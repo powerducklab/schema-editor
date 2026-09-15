@@ -188,7 +188,23 @@ function needsLeadingNewline(text: string, replaceStart: number): boolean {
 }
 
 function propertyIndent(text: string, replaceStart: number, indentSize: number): string {
-  const currentIndent = lineIndentAt(text, replaceStart);
+  const lineStart = lineStartAt(text, replaceStart);
+  const beforeOnLine = text.slice(lineStart, replaceStart);
+  const currentIndent = beforeOnLine.match(/^[ \t]*/)?.[0] ?? "";
+
+  /*
+   * If the cursor is right after an opening '{' on the same line (e.g.
+   * `"license": {|"`), properties inside that object need one more indent
+   * level than the key. Detect this by checking for a '{' before the cursor
+   * with no intervening '}' on the same line.
+   */
+  const lastOpenBrace = beforeOnLine.lastIndexOf("{");
+  const lastCloseBrace = beforeOnLine.lastIndexOf("}");
+  const afterOpeningBrace = lastOpenBrace > lastCloseBrace;
+
+  if (afterOpeningBrace) {
+    return currentIndent + " ".repeat(indentSize);
+  }
 
   if (currentIndent.length > 0) {
     return currentIndent;
