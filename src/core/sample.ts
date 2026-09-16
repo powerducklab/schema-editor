@@ -41,21 +41,24 @@ const DEFAULT_MAX_DEPTH = 5;
  * generated for one schema can never be reused by another unrelated schema
  * that happens to share the same title/type.
  */
-const sampleCache = new WeakMap<JsonSchemaObject, Map<number, unknown>>();
+let sampleCache = new WeakMap<JsonSchemaObject, WeakMap<JsonSchemaObject, Map<number, unknown>>>();
 
-function getSampleCache(schema: JsonSchemaObject): Map<number, unknown> {
-  let cache = sampleCache.get(schema);
-
-  if (!cache) {
-    cache = new Map<number, unknown>();
-    sampleCache.set(schema, cache);
+function getSampleCache(schema: JsonSchemaObject, root: JsonSchemaObject): Map<number, unknown> {
+  let roots = sampleCache.get(schema);
+  if (!roots) {
+    roots = new WeakMap();
+    sampleCache.set(schema, roots);
   }
-
+  let cache = roots.get(root);
+  if (!cache) {
+    cache = new Map();
+    roots.set(root, cache);
+  }
   return cache;
 }
 
 export function clearSampleCache(): void {
-  /* WeakMap cannot be cleared directly; rely on GC. Exposed for API symmetry. */
+  sampleCache = new WeakMap();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -170,6 +173,8 @@ function generateFallbackSample(
     return explicit;
   }
 
+  if (depth > maxDepth) return undefined;
+
   const resolved = resolveSchemas(schema, root);
   const effective = resolved[0];
 
@@ -178,7 +183,7 @@ function generateFallbackSample(
   }
 
   if (effective !== schema) {
-    return generateFallbackSample(effective, root, depth, maxDepth);
+    return generateFallbackSample(effective, root, depth + 1, maxDepth);
   }
 
   const types = getSchemaTypes(effective);
@@ -190,7 +195,7 @@ function generateFallbackSample(
 
   switch (type) {
     case "object": {
-      const out: Record<string, unknown> = {};
+      const out: Record<string, unknown> = Object.create(null);
       const required = new Set(effective.required ?? []);
 
       let count = 0;
@@ -269,9 +274,11 @@ export function generateSample(
   root: JsonSchemaObject,
   options: SampleOptions = {},
 ): unknown {
-  const maxDepth = options.maxSampleDepth ?? DEFAULT_MAX_DEPTH;
+  const requestedDepth = options.maxSampleDepth ?? DEFAULT_MAX_DEPTH;
+  const maxDepth = Number.isFinite(requestedDepth)
+    ? Math.max(0, Math.min(10, Math.floor(requestedDepth))) : DEFAULT_MAX_DEPTH;
 
-  const cache = getSampleCache(schema);
+  const cache = getSampleCache(schema, root);
 
   if (cache.has(maxDepth)) {
     return cache.get(maxDepth);
@@ -321,7 +328,7 @@ export function generateSample(
      * uses readonly arrays for consumer flexibility. The library does not
      * mutate its input, so this cast is safe.
      */
-    value = generateSync(schema as Parameters<typeof generateSync>[0], {
+    value = schema.$ref ? generateFallbackSample(schema, root, 0, maxDepth) : generateSync(schema as Parameters<typeof generateSync>[0], {
       seed: 999,
       useExamplesValue: true,
       useDefaultValue: true,

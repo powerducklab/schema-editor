@@ -20,9 +20,10 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useReducer,
+  useState,
   useRef,
   type CSSProperties,
+  type JSX,
   type MutableRefObject,
 } from "react";
 
@@ -31,20 +32,17 @@ import Editor, { type OnMount, type BeforeMount } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 
 import { load as parseYaml } from "js-yaml";
-import { getLocation } from "jsonc-parser";
+import { getDiagnosticEdits } from "../core/diagnostic-fix";
 
-import { isSchemaObject, getSchemasAtPath, getPropertySchemas, schemaAllowsType } from "../core/schema-resolver";
+import { isSchemaObject } from "../core/schema-resolver";
 import { validateParsedDocument, toEditorDiagnostics } from "../core/diagnostics";
-import { generateSample } from "../core/sample";
 
 import {
   buildJsonIndex,
-  clearJsonIndexCache,
   rangeOfPath as jsonRangeOfPath,
   resolveJsonCompletionContext,
   getJsonCompletions,
   getJsonInlineSuggestion,
-  clearJsonCompletionCaches,
 } from "../json";
 
 import {
@@ -68,10 +66,10 @@ import type {
   Diagnostic,
   EditorLanguage,
   EditorTheme,
-  JsonPath,
   JsonSchema,
 } from "../types";
 
+import { defineEditorThemes } from "./theme";
 import "./SchemaEditor.css";
 
 /* -------------------------------------------------------------------------- */
@@ -160,7 +158,7 @@ function toMonacoCompletionItem(
     label: suggestion.label,
     detail: suggestion.detail,
     documentation: suggestion.documentation
-      ? { value: suggestion.documentation, isTrusted: true }
+      ? { value: suggestion.documentation, isTrusted: false }
       : undefined,
     insertText: suggestion.insertText,
     filterText: suggestion.filterText,
@@ -172,7 +170,7 @@ function toMonacoCompletionItem(
         : suggestion.kind === "value"
           ? monaco.languages.CompletionItemKind.Value
           : monaco.languages.CompletionItemKind.Snippet,
-    insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+
     tags: suggestion.deprecated
       ? [monaco.languages.CompletionItemTag.Deprecated]
       : undefined,
@@ -280,7 +278,9 @@ function installSmartEnterIndentation(
    * wrong editor when several editors are mounted side by side). onKeyDown is
    * bound directly to this editor instance and can never fire for another editor.
    */
-  return editor.onKeyDown((event: Monaco.IKeyboardEvent) => {
+  let suggestTimer: ReturnType<typeof setTimeout> | undefined;
+  const listener = editor.onKeyDown((event: Monaco.IKeyboardEvent) => {
+    if (editor.getOption(monaco.editor.EditorOption.readOnly)) return;
     /*
      * Tab on an empty (whitespace-only) line must indent, never accept a
      * suggest-widget item. The suggest popup is auto-opened after smart Enter,
@@ -386,12 +386,14 @@ function installSmartEnterIndentation(
     editor.pushUndoStop();
 
     /* Trigger suggest on the new line for the next property. */
-    setTimeout(() => {
-      if (editor.hasTextFocus()) {
+    if (suggestTimer) clearTimeout(suggestTimer);
+    suggestTimer = setTimeout(() => {
+      if (editor.hasTextFocus() && editor.getOption(monaco.editor.EditorOption.suggestOnTriggerCharacters)) {
         editor.trigger(SMART_ENTER_SOURCE, "editor.action.triggerSuggest", {});
       }
     }, 0);
   });
+  return { dispose() { listener.dispose(); if (suggestTimer) clearTimeout(suggestTimer); } };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -423,7 +425,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
   const monacoRef = useRef<typeof Monaco | null>(null);
   const modelUriRef = useRef<Monaco.Uri | null>(null);
   const mountedRef = useRef(true);
-  const [editorReady, setEditorReady] = useRefState(false);
+  const [editorReady, setEditorReady] = useState(false);
 
   /*
    * Unique model URI per instance. Ensures each editor has its own Monaco
@@ -437,6 +439,11 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
   const modelPathRef = useRef(modelPath);
   const diagnosticsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const diagnosticsVersionRef = useRef(0);
+  const diagnosticSnapshot = useRef<{ version: number; diagnostics: Diagnostic[] }>({ version: -1, diagnostics: [] });
+  const onDiagnosticsRef = useRef(onDiagnostics);
+  const scheduleRef = useRef<() => void>(() => {});
+  const [validationStatus, setValidationStatus] = useState("Checking");
+  useEffect(() => { onDiagnosticsRef.current = onDiagnostics; }, [onDiagnostics]);
   const completionProviderRef = useRef<Monaco.IDisposable | null>(null);
   const inlineProviderRef = useRef<Monaco.IDisposable | null>(null);
   const smartEnterDisposableRef = useRef<Monaco.IDisposable | null>(null);
@@ -469,6 +476,11 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
     [externalEditorRef],
   );
 
+  useEffect(() => {
+    if (externalEditorRef) externalEditorRef.current = internalEditorRef.current;
+    return () => { if (externalEditorRef) externalEditorRef.current = null; };
+  }, [externalEditorRef, editorReady]);
+
   /* ------------------------------------------------------------------------ */
   /* Diagnostics                                                              */
   /* ------------------------------------------------------------------------ */
@@ -487,25 +499,30 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
       return;
     }
 
+    const version = ++diagnosticsVersionRef.current;
+    const modelVersion = model.getVersionId();
     const text = model.getValue();
     const currentLanguage = languageRef.current;
 
     if (currentLanguage === "javascript") {
       monaco.editor.setModelMarkers(model, "schema-editor", []);
-      onDiagnostics?.([]);
+      diagnosticSnapshot.current = { version: modelVersion, diagnostics: [] };
+      setValidationStatus("Language diagnostics");
+      onDiagnosticsRef.current?.([]);
       return;
     }
 
     if (text.length > LARGE_DOCUMENT_THRESHOLD) {
       monaco.editor.setModelMarkers(model, "schema-editor", []);
-      onDiagnostics?.([]);
+      diagnosticSnapshot.current = { version: modelVersion, diagnostics: [] };
+      setValidationStatus("Validation paused: large document");
+      onDiagnosticsRef.current?.([]);
       return;
     }
 
-    const version = ++diagnosticsVersionRef.current;
-
-    /* Parse and validate asynchronously to avoid blocking typing. */
-    setTimeout(() => {
+    const root = schemaRef.current;
+    setValidationStatus("Checking");
+    diagnosticsTimerRef.current = setTimeout(() => {
       /* Guard against unmount or stale request. */
       if (!mountedRef.current || version !== diagnosticsVersionRef.current) {
         return;
@@ -519,15 +536,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
 
       const currentModel = currentEditor.getModel();
 
-      if (!currentModel || currentModel !== model) {
-        return;
-      }
-
-      const root = isSchemaObject(schemaRef.current) ? schemaRef.current : undefined;
-
-      if (!root) {
-        monaco.editor.setModelMarkers(model, "schema-editor", []);
-        onDiagnostics?.([]);
+      if (!currentModel || currentModel !== model || model.getVersionId() !== modelVersion || schemaRef.current !== root || languageRef.current !== currentLanguage) {
         return;
       }
 
@@ -612,7 +621,9 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
         }
 
         monaco.editor.setModelMarkers(model, "schema-editor", markers);
-        onDiagnostics?.(diagnosticsList);
+        diagnosticSnapshot.current = { version: modelVersion, diagnostics: diagnosticsList };
+        setValidationStatus("Checked");
+        onDiagnosticsRef.current?.(diagnosticsList);
         return;
       }
 
@@ -627,7 +638,8 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
          * diagnostics pipeline. Clear any stale markers and continue.
          */
         monaco.editor.setModelMarkers(model, "schema-editor", []);
-        onDiagnostics?.([]);
+        setValidationStatus("Validation unavailable");
+        onDiagnosticsRef.current?.([]);
         return;
       }
 
@@ -708,17 +720,26 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
       const markers = editorDiagnostics.map((d) => toMonacoMarker(d, monaco));
 
       monaco.editor.setModelMarkers(model, "schema-editor", markers);
-      onDiagnostics?.(editorDiagnostics);
+      diagnosticSnapshot.current = { version: modelVersion, diagnostics: editorDiagnostics };
+      setValidationStatus(root === undefined ? "Syntax checked" : "Checked");
+      onDiagnosticsRef.current?.(editorDiagnostics);
     }, 0);
-  }, [onDiagnostics]);
+  }, []);
 
   const scheduleDiagnostics = useCallback(() => {
+    ++diagnosticsVersionRef.current;
+    diagnosticSnapshot.current = { version: -1, diagnostics: [] };
     if (diagnosticsTimerRef.current) {
       clearTimeout(diagnosticsTimerRef.current);
     }
 
-    diagnosticsTimerRef.current = setTimeout(runDiagnostics, diagnosticsDebounceMs);
+    diagnosticsTimerRef.current = setTimeout(runDiagnostics, Number.isFinite(diagnosticsDebounceMs) ? Math.max(0, diagnosticsDebounceMs) : DEFAULT_DIAGNOSTICS_DEBOUNCE);
   }, [runDiagnostics, diagnosticsDebounceMs]);
+  useEffect(() => {
+    scheduleRef.current = scheduleDiagnostics;
+    scheduleDiagnostics();
+    return () => { ++diagnosticsVersionRef.current; if (diagnosticsTimerRef.current) clearTimeout(diagnosticsTimerRef.current); };
+  }, [scheduleDiagnostics, schema, language, value]);
 
   /* ------------------------------------------------------------------------ */
   /* Native inline completions (ghost text)                                   */
@@ -741,6 +762,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
           }
 
           const text = model.getValue();
+          if (text.length > LARGE_DOCUMENT_THRESHOLD || internalEditorRef.current?.getOption(monaco.editor.EditorOption.readOnly)) return { items: [] };
           const offset = model.getOffsetAt(position);
           const currentLanguage = languageFromModel(model);
           const root = isSchemaObject(schemaRef.current) ? schemaRef.current : undefined;
@@ -895,6 +917,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
           }
 
           const text = model.getValue();
+          if (text.length > LARGE_DOCUMENT_THRESHOLD || internalEditorRef.current?.getOption(monaco.editor.EditorOption.readOnly)) return { items: [], suggestions: [] };
           const offset = model.getOffsetAt(position);
           const currentLanguage = languageFromModel(model);
           const root = isSchemaObject(schemaRef.current) ? schemaRef.current : undefined;
@@ -973,6 +996,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
 
   const beforeMount: BeforeMount = useCallback((monaco: typeof Monaco) => {
     monacoRef.current = monaco;
+    defineEditorThemes(monaco);
   }, []);
 
   const onMount: OnMount = useCallback(
@@ -992,11 +1016,6 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
        * Without this, Monaco can initialise at 0px height when the parent
        * container gets its height from a flex layout that has not settled yet.
        */
-      requestAnimationFrame(() => {
-        editor.layout();
-      });
-      setTimeout(() => editor.layout(), 100);
-
       /*
        * Dispose any previously registered providers before registering new
        * ones. This guards against duplicate registration when onMount is
@@ -1010,77 +1029,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
       completionProviderRef.current = registerCompletionProvider(monaco) ?? null;
       inlineProviderRef.current = registerInlineCompletionsProvider(monaco) ?? null;
 
-      /* YAML smart enter: auto-indent and trigger suggest on new line. */
-      if (languageRef.current === "yaml") {
-        smartEnterDisposableRef.current?.dispose();
-        smartEnterDisposableRef.current = installSmartEnterIndentation(editor, monaco);
-
-        /*
-         * Register "Format YAML" in the editor context menu (right-click).
-         * Uses the tolerant formatter: fixes indentation and colon spacing
-         * even when the document has syntax errors.
-         */
-        formatActionDisposableRef.current?.dispose();
-        formatActionDisposableRef.current = editor.addAction({
-          id: "schema-editor-format-yaml",
-          label: "Format YAML",
-          contextMenuGroupId: "1_modification",
-          contextMenuOrder: 1,
-          run: (ed) => {
-            const model = ed.getModel();
-            if (!model) return;
-
-            const original = model.getValue();
-            const formatted = formatYaml(original);
-
-            if (formatted === original) {
-              return;
-            }
-
-            ed.pushUndoStop();
-            ed.executeEdits("schema-editor-format", [
-              {
-                range: model.getFullModelRange(),
-                text: formatted,
-                forceMoveMarkers: false,
-              },
-            ]);
-            ed.pushUndoStop();
-          },
-        });
-      }
-
-      /*
-       * Trigger completion automatically when the cursor lands on an empty
-       * line in YAML or JSON. Monaco does not invoke quick-suggest on lines
-       * with zero word characters, so we trigger it manually for the common
-       * case of navigating to a blank line to add a new property.
-       */
-      if (languageRef.current === "yaml" || languageRef.current === "json") {
-        editor.onDidChangeCursorPosition((event) => {
-          const model = editor.getModel();
-
-          if (!model) {
-            return;
-          }
-
-          const lineContent = model.getLineContent(event.position.lineNumber);
-
-          if (lineContent.trim().length === 0) {
-            /* Small delay so the cursor settles before the popup opens. */
-            setTimeout(() => {
-              if (editor.hasTextFocus()) {
-                editor.trigger("schema-editor", "editor.action.triggerSuggest", {});
-              }
-            }, 50);
-          }
-        });
-      }
-
-      /* Run diagnostics on content change. */
-      editor.onDidChangeModelContent(() => {
-        scheduleDiagnostics();
-      });
+      const contentListener = editor.onDidChangeModelContent(() => scheduleRef.current());
 
       /* Initial diagnostics. */
       scheduleDiagnostics();
@@ -1103,8 +1052,9 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
           clearTimeout(diagnosticsTimerRef.current);
         }
 
-        clearJsonIndexCache();
-        clearJsonCompletionCaches();
+        contentListener.dispose();
+        ++diagnosticsVersionRef.current;
+        setEditorRef(null);
       });
     },
     [
@@ -1139,7 +1089,60 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
       inlineProviderRef.current?.dispose();
       inlineProviderRef.current = null;
     };
-  }, [language, registerCompletionProvider, registerInlineCompletionsProvider]);
+  }, [editorReady, language, registerCompletionProvider, registerInlineCompletionsProvider]);
+
+  useEffect(() => {
+    const editor = internalEditorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco) return;
+      /* YAML smart enter: auto-indent and trigger suggest on new line. */
+      if (languageRef.current === "yaml") {
+        smartEnterDisposableRef.current?.dispose();
+        smartEnterDisposableRef.current = installSmartEnterIndentation(editor, monaco);
+
+        /*
+         * Register "Format YAML" in the editor context menu (right-click).
+         * Uses the tolerant formatter: fixes indentation and colon spacing
+         * even when the document has syntax errors.
+         */
+        formatActionDisposableRef.current?.dispose();
+        formatActionDisposableRef.current = editor.addAction({
+          id: "schema-editor-format-yaml",
+          label: "Format YAML",
+          precondition: "!editorReadonly",
+          contextMenuGroupId: "1_modification",
+          contextMenuOrder: 1,
+          run: (ed) => {
+            const model = ed.getModel();
+            if (!model || ed.getOption(monaco.editor.EditorOption.readOnly)) return;
+
+            const original = model.getValue();
+            const formatted = formatYaml(original);
+
+            if (formatted === original) {
+              return;
+            }
+
+            ed.pushUndoStop();
+            ed.executeEdits("schema-editor-format", [
+              {
+                range: model.getFullModelRange(),
+                text: formatted,
+                forceMoveMarkers: false,
+              },
+            ]);
+            ed.pushUndoStop();
+          },
+        });
+      }
+
+    return () => {
+      smartEnterDisposableRef.current?.dispose();
+      smartEnterDisposableRef.current = null;
+      formatActionDisposableRef.current?.dispose();
+      formatActionDisposableRef.current = null;
+    };
+  }, [editorReady, language]);
 
   /* ------------------------------------------------------------------------ */
   /* Cleanup                                                                  */
@@ -1150,6 +1153,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
 
     return () => {
       mountedRef.current = false;
+      ++diagnosticsVersionRef.current;
 
       if (diagnosticsTimerRef.current) {
         clearTimeout(diagnosticsTimerRef.current);
@@ -1164,8 +1168,9 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
 
   const editorOptions = useMemo<Monaco.editor.IStandaloneEditorConstructionOptions>(
     () => ({
-      readOnly,
       minimap: { enabled: false },
+      padding: { top: 12, bottom: 12 },
+      scrollbar: { vertical: "auto", horizontal: "auto", verticalScrollbarSize: 6, horizontalScrollbarSize: 6, useShadows: false },
       fontSize: 13,
       lineNumbers: "on",
       renderLineHighlight: "all",
@@ -1217,11 +1222,12 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
       tabCompletion: "off",
       acceptSuggestionOnEnter: enableCompletion ? "on" : "off",
       ...extraOptions,
+      readOnly: readOnly || extraOptions?.readOnly,
     }),
     [readOnly, extraOptions, enableCompletion, enableInlineSuggestions],
   );
 
-  const monacoTheme = theme === "dark" ? "vs-dark" : "vs";
+  const monacoTheme = theme === "dark" ? "powerduck-dark" : "powerduck-light";
 
   const containerClassName = ["pde-container", className].filter(Boolean).join(" ");
 
@@ -1241,7 +1247,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
           beforeMount={beforeMount}
           onMount={onMount}
           options={editorOptions}
-          loading={null}
+          loading={<div className="pde-loading" role="status">Loading editor…</div>}
         />
       </div>
 
@@ -1254,6 +1260,8 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
           language={language}
           editorReady={editorReady}
           schema={schema}
+          snapshot={diagnosticSnapshot}
+          status={validationStatus}
         />
       )}
     </div>
@@ -1270,11 +1278,13 @@ interface DiagnosticsBarProps {
   language: EditorLanguage;
   editorReady: boolean;
   schema: JsonSchema | undefined;
+  snapshot: MutableRefObject<{ version: number; diagnostics: Diagnostic[] }>;
+  status: string;
 }
 
-function DiagnosticsBar({ editorRef, monaco: monacoRef, language, editorReady, schema }: DiagnosticsBarProps): JSX.Element {
-  const [markers, setMarkers] = useRefState<Monaco.editor.IMarker[]>([]);
-  const [expanded, setExpanded] = useRefState(false);
+function DiagnosticsBar({ editorRef, monaco: monacoRef, language, editorReady, schema, snapshot, status }: DiagnosticsBarProps): JSX.Element {
+  const [markers, setMarkers] = useState<Monaco.editor.IMarker[]>([]);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (!editorReady) {
@@ -1308,7 +1318,7 @@ function DiagnosticsBar({ editorRef, monaco: monacoRef, language, editorReady, s
 
     update();
 
-    const disposable = monaco.editor.onDidChangeMarkers(() => update());
+    const disposable = monaco.editor.onDidChangeMarkers((resources) => { if (resources.some((uri) => uri.toString() === editor.getModel()?.uri.toString())) update(); });
 
     return () => {
       disposable.dispose();
@@ -1333,274 +1343,36 @@ function DiagnosticsBar({ editorRef, monaco: monacoRef, language, editorReady, s
     editor.focus();
   };
 
-  /*
-   * Attempt to auto-fix a diagnostic. Handles:
-   *   - "Missing required property 'X'" → inserts the property key
-   *   - "Value must be of type object."  → YAML: add indented newline; JSON: {}
-   *   - "Value must be of type array."   → YAML: add "- " item; JSON: []
-   */
-  const fixIssue = (marker: Monaco.editor.IMarker): void => {
+  const editsFor = (marker: Monaco.editor.IMarker) => {
     const editor = editorRef.current;
+    const model = editor?.getModel();
     const monaco = monacoRef.current;
-    if (!editor || !monaco) return;
-
-    const model = editor.getModel();
-    if (!model) return;
-
-    const isYaml = model.getLanguageId() === "yaml";
-
-    /* --- Missing required property --- */
-    const missingMatch = marker.message.match(/Missing required property ["'](.+?)["']/);
-
-    if (missingMatch) {
-      const propertyName = missingMatch[1]!;
-      const fullText = model.getValue();
-      const markerOffset = model.getOffsetAt({
-        lineNumber: marker.startLineNumber,
-        column: marker.startColumn,
-      });
-
-      editor.pushUndoStop();
-
-      /*
-       * Resolve the property schema to generate a meaningful sample value.
-       * Uses getLocation to find the JSON path at the marker, then resolves
-       * the object schema and property schema through the core layer.
-       */
-      let sampleValue: unknown = "";
-      let objectPath: JsonPath = [];
-      try {
-        const root = isSchemaObject(schema) ? schema : {};
-        const location = getLocation(fullText, markerOffset);
-        objectPath = location.path as JsonPath;
-
-        /*
-         * If the marker is inside the object (path has an extra segment such
-         * as an empty string or a child property), strip the last segment to
-         * get the object's own path.
-         */
-        if (
-          objectPath.length > 0 &&
-          (objectPath[objectPath.length - 1] === "" ||
-            (typeof objectPath[objectPath.length - 1] === "string" &&
-              location.isAtPropertyKey === false))
-        ) {
-          objectPath = objectPath.slice(0, -1);
-        }
-
-        const objectSchemas = getSchemasAtPath(root, objectPath).filter((s) =>
-          schemaAllowsType(s, "object"),
-        );
-        const propertySchemas = getPropertySchemas(objectSchemas, propertyName, root);
-
-        if (propertySchemas.length > 0) {
-          const generated = generateSample(propertySchemas[0]!, root);
-          if (generated !== undefined) {
-            sampleValue = generated;
-          }
-        }
-      } catch {
-        /* Fall back to empty string sample on any resolution error. */
-      }
-
-      if (isYaml) {
-        /*
-         * YAML: insert the property inside the marker's object block.
-         * Indent is derived from the object path depth (2 spaces per level),
-         * not the marker line's indent — root-level markers sit at the end of
-         * the document where the last line may be deeply indented.
-         */
-        const indent = objectPath.length * 2;
-
-        /*
-         * Find the insertion line: scan down from the marker line to find the
-         * next non-blank line at indent <= the object's property indent. For
-         * root-level markers at end-of-document, this naturally yields
-         * lineCount + 1.
-         */
-        let insertLine = marker.startLineNumber + 1;
-        for (let line = marker.startLineNumber + 1; line <= model.getLineCount(); line += 1) {
-          const lineContent = model.getLineContent(line);
-          if (lineContent.trim().length === 0) continue;
-          const lineIndent = lineContent.match(/^(\s*)/)?.[1]?.length ?? 0;
-          if (lineIndent <= indent) {
-            insertLine = line;
-            break;
-          }
-          insertLine = line + 1;
-        }
-
-        /* Clamp to document bounds. */
-        insertLine = Math.min(insertLine, model.getLineCount() + 1);
-
-        const yamlValue = typeof sampleValue === "string" ? sampleValue : JSON.stringify(sampleValue);
-        const insertText = `${" ".repeat(indent)}${propertyName}: ${yamlValue}\n`;
-
-        editor.executeEdits("schema-editor-fix", [
-          {
-            range: new monaco.Range(insertLine, 1, insertLine, 1),
-            text: insertText,
-            forceMoveMarkers: true,
-          },
-        ]);
-      } else {
-        /*
-         * JSON: locate the target object via the document index using the
-         * object's JSON path (derived from the marker position). This is more
-         * robust than scanning braces from the marker offset, because the
-         * marker for root-level errors sits after the closing brace.
-         */
-        const jsonIndex = buildJsonIndex(fullText);
-        let targetNode = jsonIndex.findNode(objectPath);
-
-        /* Fall back to root if path lookup fails (e.g. marker past end of doc). */
-        if (!targetNode || targetNode.type !== "object") {
-          targetNode = jsonIndex.root;
-        }
-
-        if (!targetNode || targetNode.type !== "object") {
-          editor.pushUndoStop();
-          return;
-        }
-
-        /* The closing brace is the last character of the object node. */
-        const closeBraceOffset = targetNode.offset + targetNode.length - 1;
-
-        /* Indent from the line containing the opening brace. */
-        const openBracePos = model.getPositionAt(targetNode.offset);
-        const openBraceLine = model.getLineContent(openBracePos.lineNumber);
-        const objectIndent = openBraceLine.match(/^(\s*)/)?.[1]?.length ?? 0;
-        const propertyIndentValue = objectIndent + 2;
-
-        const jsonValue = JSON.stringify(sampleValue);
-
-        /* Find the last non-whitespace character before the closing '}'. */
-        const beforeBrace = fullText.slice(0, closeBraceOffset);
-        const lastNonWsMatch = beforeBrace.match(/\S(?=\s*$)/);
-
-        if (!lastNonWsMatch) {
-          /* Empty object: insert inside the braces. */
-          const pos = model.getPositionAt(closeBraceOffset);
-          editor.executeEdits("schema-editor-fix", [
-            {
-              range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
-              text: `\n${" ".repeat(propertyIndentValue)}"${propertyName}": ${jsonValue}\n${" ".repeat(objectIndent)}`,
-              forceMoveMarkers: true,
-            },
-          ]);
-        } else {
-          const lastNonWsChar = lastNonWsMatch[0]!;
-          const lastNonWsOffset = beforeBrace.lastIndexOf(lastNonWsChar);
-          const insertOffset = lastNonWsOffset + 1;
-          const insertPos = model.getPositionAt(insertOffset);
-          const needsComma = lastNonWsChar !== "," && lastNonWsChar !== "{";
-
-          const prefix = needsComma ? "," : "";
-          const insertText = `${prefix}\n${" ".repeat(propertyIndentValue)}"${propertyName}": ${jsonValue}`;
-
-          editor.executeEdits("schema-editor-fix", [
-            {
-              range: new monaco.Range(
-                insertPos.lineNumber,
-                insertPos.column,
-                insertPos.lineNumber,
-                insertPos.column,
-              ),
-              text: insertText,
-              forceMoveMarkers: true,
-            },
-          ]);
-        }
-      }
-
-      editor.pushUndoStop();
-      editor.focus();
-      return;
-    }
-
-    /* --- Value must be of type object/array --- */
-    const typeObjectMatch = marker.message.match(/must be of type object/i);
-    const typeArrayMatch = marker.message.match(/must be of type array/i);
-
-    if (typeObjectMatch || typeArrayMatch) {
-      editor.pushUndoStop();
-
-      if (isYaml) {
-        /*
-         * For YAML, a null value (e.g. "get:") needs a child block.
-         * object → newline + child indent
-         * array  → newline + child indent + "- "
-         */
-        const lineContent = model.getLineContent(marker.startLineNumber);
-        const indentMatch = lineContent.match(/^(\s*)/);
-        const indent = indentMatch?.[1]?.length ?? 0;
-        const childIndent = indent + 2;
-        const suffix = typeArrayMatch ? "- " : "";
-        const insertText = `\n${" ".repeat(childIndent)}${suffix}`;
-        const lineMaxCol = model.getLineMaxColumn(marker.startLineNumber);
-
-        editor.executeEdits("schema-editor-fix", [
-          {
-            range: new monaco.Range(
-              marker.startLineNumber,
-              lineMaxCol,
-              marker.startLineNumber,
-              lineMaxCol,
-            ),
-            text: insertText,
-            forceMoveMarkers: true,
-          },
-        ]);
-
-        editor.setPosition(
-          new monaco.Position(marker.startLineNumber + 1, childIndent + suffix.length + 1),
-        );
-      } else {
-        /*
-         * For JSON, replace the null value with {} or [].
-         * The marker points at the value position.
-         */
-        const lineContent = model.getLineContent(marker.startLineNumber);
-        const replacement = typeObjectMatch ? "{}" : "[]";
-
-        /* Find "null" at or after the marker column. */
-        const nullIdx = lineContent.indexOf("null", marker.startColumn - 1);
-        if (nullIdx >= 0) {
-          editor.executeEdits("schema-editor-fix", [
-            {
-              range: new monaco.Range(
-                marker.startLineNumber,
-                nullIdx + 1,
-                marker.startLineNumber,
-                nullIdx + 5,
-              ),
-              text: replacement,
-              forceMoveMarkers: true,
-            },
-          ]);
-        }
-      }
-
-      editor.pushUndoStop();
-      editor.focus();
-      return;
-    }
-
-    /* No auto-fix available for this diagnostic type. */
+    if (!model || !monaco || !editor || model.getLanguageId() !== "json" || editor.getOption(monaco.editor.EditorOption.readOnly) || snapshot.current.version !== model.getVersionId()) return [];
+    const diagnostic = snapshot.current.diagnostics.find((item) => item.message === marker.message && item.line === marker.startLineNumber && item.column === marker.startColumn);
+    return diagnostic ? getDiagnosticEdits(model.getValue(), schema, diagnostic) : [];
   };
-
-  const canFix = (marker: Monaco.editor.IMarker): boolean => {
-    return (
-      /Missing required property/.test(marker.message) ||
-      /must be of type object/i.test(marker.message) ||
-      /must be of type array/i.test(marker.message)
-    );
+  const canFix = (marker: Monaco.editor.IMarker) => editsFor(marker).length > 0;
+  const fixIssue = (marker: Monaco.editor.IMarker) => {
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    const monaco = monacoRef.current;
+    if (!editor || !model || !monaco) return;
+    const edits = editsFor(marker).map((edit) => {
+      const start = model.getPositionAt(edit.offset);
+      const end = model.getPositionAt(edit.offset + edit.length);
+      return { range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column), text: edit.content };
+    });
+    if (!edits.length) return;
+    editor.pushUndoStop();
+    editor.executeEdits("schema-editor-fix", edits);
+    editor.pushUndoStop();
+    editor.focus();
   };
 
   return (
     <>
       {expanded && markers.length > 0 && (
-        <div className="pde-diagnostics-panel">
+        <div className="pde-diagnostics-panel" role="region" aria-label="Diagnostics" onKeyDown={(event) => { if (event.key === "Escape") { setExpanded(false); editorRef.current?.focus(); } }}>
           <ul className="pde-diagnostics-list">
             {markers.map((marker, index) => (
               <li
@@ -1622,7 +1394,7 @@ function DiagnosticsBar({ editorRef, monaco: monacoRef, language, editorReady, s
                     </svg>
                   )}
                 </span>
-                <span className="pde-diagnostics-item-text" onClick={() => jumpTo(marker)}>{marker.message}</span>
+                <span className="pde-diagnostics-item-text" title={snapshot.current.diagnostics.find(item => item.message === marker.message)?.fix} onClick={() => jumpTo(marker)}>{marker.message}</span>
                 <span className="pde-diagnostics-item-location" onClick={() => jumpTo(marker)}>
                   Ln {marker.startLineNumber}, Col {marker.startColumn}
                 </span>
@@ -1641,6 +1413,7 @@ function DiagnosticsBar({ editorRef, monaco: monacoRef, language, editorReady, s
                     type="button"
                     className={`pde-diagnostics-btn pde-diagnostics-btn-fix ${canFix(marker) ? "" : "disabled"}`}
                     disabled={!canFix(marker)}
+                    title={canFix(marker) ? "Apply a targeted, undoable fix" : "No safe automatic fix is available for this issue"}
                     onClick={(e) => {
                       e.stopPropagation();
                       fixIssue(marker);
@@ -1654,7 +1427,7 @@ function DiagnosticsBar({ editorRef, monaco: monacoRef, language, editorReady, s
           </ul>
         </div>
       )}
-      <div className="pde-diagnostics-bar" onClick={() => setExpanded(!expanded)}>
+      <button type="button" className="pde-diagnostics-bar" aria-label="Toggle diagnostics" aria-expanded={expanded && markers.length > 0} onClick={() => setExpanded(!expanded)}>
         {errorCount > 0 && (
           <span className="pde-diagnostics-error">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
@@ -1662,7 +1435,7 @@ function DiagnosticsBar({ editorRef, monaco: monacoRef, language, editorReady, s
               <rect x="5.5" y="3" width="1" height="4" fill="white" />
               <rect x="5.5" y="8" width="1" height="1" fill="white" />
             </svg>
-            {errorCount}
+            {errorCount} {errorCount === 1 ? "error" : "errors"}
           </span>
         )}
         {warningCount > 0 && (
@@ -1672,11 +1445,11 @@ function DiagnosticsBar({ editorRef, monaco: monacoRef, language, editorReady, s
               <rect x="5.5" y="5" width="1" height="3" fill="white" />
               <rect x="5.5" y="8.5" width="1" height="1" fill="white" />
             </svg>
-            {warningCount}
+            {warningCount} {warningCount === 1 ? "warning" : "warnings"}
           </span>
         )}
         {errorCount === 0 && warningCount === 0 && (
-          <span className="pde-diagnostics-ok">No issues</span>
+          <span className="pde-diagnostics-ok" role="status">{status === "Checked" ? "No issues" : status}</span>
         )}
         <span className="pde-diagnostics-spacer" />
         <span
@@ -1688,28 +1461,7 @@ function DiagnosticsBar({ editorRef, monaco: monacoRef, language, editorReady, s
           </svg>
         </span>
         <span className="pde-language-badge">{language}</span>
-      </div>
+      </button>
     </>
   );
-}
-
-/* -------------------------------------------------------------------------- */
-/* useRefState — a tiny state hook that avoids re-render storms              */
-/* -------------------------------------------------------------------------- */
-
-function useRefState<T>(initial: T): [T, (value: T) => void] {
-  const ref = useRef(initial);
-  const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
-
-  const setValue = useCallback(
-    (value: T) => {
-      if (ref.current !== value) {
-        ref.current = value;
-        forceUpdate();
-      }
-    },
-    [],
-  );
-
-  return [ref.current, setValue];
 }

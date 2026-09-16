@@ -171,7 +171,13 @@ export interface CompletionSuggestion {
 /* Diagnostics                                                                */
 /* -------------------------------------------------------------------------- */
 
+export type DiagnosticAction =
+  | { kind: "add-required"; property: string }
+  | { kind: "replace-null"; type: "object" | "array" };
+
 export interface Diagnostic {
+  semanticPath?: JsonPath;
+  action?: DiagnosticAction;
   message: string;
   path: string[];
 
@@ -193,6 +199,8 @@ export interface Diagnostic {
 /* -------------------------------------------------------------------------- */
 
 export interface CompletionRuntimeCache {
+  /** Source text must match before reusing a completion context. */
+  text?: string;
   versionId: number;
   offset: number;
   schema: JsonSchema | undefined;

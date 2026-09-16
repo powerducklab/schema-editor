@@ -56,35 +56,26 @@ function buildReferenceIndex(root: JsonSchemaObject): ReferenceIndex {
   const index: ReferenceIndex = { byId: new Map(), byAnchor: new Map() };
   const seen = new Set<unknown>();
 
-  const visit = (value: unknown, baseId: string): void => {
-    if (!isRecord(value) || seen.has(value)) {
-      return;
-    }
-
+  const pending: Array<{ value: unknown; baseId: string }> = [{ value: root, baseId: typeof root.$id === "string" ? root.$id : "" }];
+  while (pending.length) {
+    const { value, baseId } = pending.pop()!;
+    if (!isRecord(value) || seen.has(value)) continue;
     seen.add(value);
-
     let currentBase = baseId;
-
     if (typeof value.$id === "string" && value.$id) {
       currentBase = resolveUri(baseId, value.$id);
       index.byId.set(currentBase, value as JsonSchemaObject);
     }
-
     if (typeof value.$anchor === "string" && value.$anchor) {
       index.byAnchor.set(`${currentBase}#${value.$anchor}`, value as JsonSchemaObject);
       index.byAnchor.set(`#${value.$anchor}`, value as JsonSchemaObject);
     }
-
     for (const child of Object.values(value)) {
       if (Array.isArray(child)) {
-        child.forEach((item) => visit(item, currentBase));
-      } else if (isRecord(child)) {
-        visit(child, currentBase);
-      }
+        for (let i = child.length - 1; i >= 0; i--) pending.push({ value: child[i], baseId: currentBase });
+      } else if (isRecord(child)) pending.push({ value: child, baseId: currentBase });
     }
-  };
-
-  visit(root, typeof root.$id === "string" ? root.$id : "");
+  }
 
   referenceIndexCache.set(root, index);
   return index;
@@ -119,7 +110,7 @@ function decodePointerSegment(segment: string): string {
 }
 
 function resolvePointer(root: unknown, pointer: string): unknown {
-  if (pointer === "" || pointer === "/") {
+  if (pointer === "") {
     return root;
   }
 
@@ -130,7 +121,7 @@ function resolvePointer(root: unknown, pointer: string): unknown {
     if (Array.isArray(current)) {
       const position = Number(segment);
 
-      if (!Number.isInteger(position) || position < 0 || position >= current.length) {
+      if (!/^(0|[1-9]\d*)$/.test(segment) || !Number.isInteger(position) || position < 0 || position >= current.length) {
         return undefined;
       }
 
@@ -138,7 +129,7 @@ function resolvePointer(root: unknown, pointer: string): unknown {
       continue;
     }
 
-    if (!isRecord(current) || !(segment in current)) {
+    if (!isRecord(current) || !Object.prototype.hasOwnProperty.call(current, segment)) {
       return undefined;
     }
 
@@ -155,7 +146,7 @@ function resolvePointer(root: unknown, pointer: string): unknown {
 export function resolveReference(
   root: JsonSchemaObject,
   ref: string,
-): JsonSchemaObject | undefined {
+): JsonSchema | undefined {
   if (typeof ref !== "string" || !ref) {
     return undefined;
   }
@@ -183,7 +174,7 @@ export function resolveReference(
 
   if (fragment.startsWith("/")) {
     const resolved = resolvePointer(target, fragment);
-    return isSchemaObject(resolved) ? resolved : undefined;
+    return isSchemaObject(resolved) || typeof resolved === "boolean" ? resolved : undefined;
   }
 
   /* Plain-name fragment: $anchor. */
@@ -252,7 +243,9 @@ export function resolveSchemas(
   root: JsonSchemaObject,
   depth = 0,
   seen: Set<JsonSchemaObject> = new Set(),
+  budget = { remaining: 2048 },
 ): JsonSchemaObject[] {
+  if (--budget.remaining < 0) return [];
   if (schema === undefined || schema === false) {
     return [];
   }
@@ -273,12 +266,13 @@ export function resolveSchemas(
   if (typeof schema.$ref === "string") {
     const target = resolveReference(root, schema.$ref);
 
-    if (!target) {
+    if (target === false) return [];
+    if (target === undefined) {
       const { $ref: _ignored, ...rest } = schema;
       effective = rest;
     } else {
       const { $ref: _ignored, ...siblings } = schema;
-      const resolvedTargets = resolveSchemas(target, root, depth + 1, nextSeen);
+      const resolvedTargets = resolveSchemas(target, root, depth + 1, nextSeen, budget);
 
       if (resolvedTargets.length === 0) {
         effective = siblings;
@@ -294,8 +288,9 @@ export function resolveSchemas(
     const { allOf, ...rest } = effective;
     let candidates: JsonSchemaObject[] = [rest];
 
-    for (const part of allOf) {
-      const partCandidates = resolveSchemas(part, root, depth + 1, nextSeen);
+    for (const part of allOf.slice(0, 64)) {
+      if (part === false) return [];
+      const partCandidates = resolveSchemas(part, root, depth + 1, nextSeen, budget);
 
       if (partCandidates.length === 0) {
         continue;
@@ -305,7 +300,7 @@ export function resolveSchemas(
 
       for (const candidate of candidates) {
         for (const partCandidate of partCandidates) {
-          next.push(mergeSchemas(candidate, partCandidate));
+          if (next.length < 16) next.push(mergeSchemas(candidate, partCandidate));
         }
       }
 
@@ -320,7 +315,7 @@ export function resolveSchemas(
 
     if (candidates.length > 1) {
       return candidates.flatMap((candidate) =>
-        resolveSchemas(candidate, root, depth + 1, nextSeen),
+        resolveSchemas(candidate, root, depth + 1, nextSeen, budget),
       );
     }
   }
@@ -334,9 +329,10 @@ export function resolveSchemas(
     const { anyOf: _a, oneOf: _o, ...rest } = effective;
 
     for (const list of combinators) {
-      for (const branch of list) {
-        for (const resolved of resolveSchemas(branch, root, depth + 1, nextSeen)) {
-          branches.push(mergeSchemas(rest, resolved));
+      for (const branch of list.slice(0, 64)) {
+        if (branches.length >= 64) break;
+        for (const resolved of resolveSchemas(branch, root, depth + 1, nextSeen, budget)) {
+          if (branches.length < 64) branches.push(mergeSchemas(rest, resolved));
         }
       }
     }
@@ -346,7 +342,7 @@ export function resolveSchemas(
     const { if: _i, then, else: otherwise, ...rest } = effective;
 
     for (const conditional of [then, otherwise]) {
-      for (const resolved of resolveSchemas(conditional, root, depth + 1, nextSeen)) {
+      for (const resolved of resolveSchemas(conditional, root, depth + 1, nextSeen, budget)) {
         branches.push(mergeSchemas(rest, resolved));
       }
     }

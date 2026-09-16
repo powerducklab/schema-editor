@@ -11,12 +11,12 @@
 - **Schema-driven completion** — property keys, enum values, defaults, examples, and generated samples, all derived from the supplied JSON Schema.
 - **Inline ghost text** — Tab to accept the best matching suggestion, rendered as ghost text at the cursor using Monaco's native `InlineCompletionsProvider`.
 - **Three languages** — `json`, `yaml`, and `javascript` (snippet-based ghost completion).
-- **Schema diagnostics** — Ajv-powered validation (draft-04 through 2020-12) with precise line/column locations and human-readable fix suggestions.
+- **Schema diagnostics** — Ajv-powered validation (draft-07 and 2020-12; legacy dialect support is partial) with precise line/column locations and human-readable fix suggestions.
 - **One-click diagnostics fixes** — Locate jumps to the error position; Fix auto-resolves missing required properties, type mismatches (object/array), and more.
 - **Tolerant YAML formatter** — Right-click **Format YAML** normalizes indentation and colon spacing even when the document has syntax errors.
 - **Any JSON Schema** — works with the OpenAPI 3.2 schema, your own schemas, or anything in between.
 - **Light / dark theme** — via CSS variables, compatible with your design system.
-- **Performance** — cached schema resolution, cached sample generation, debounced diagnostics, large-document guard.
+- **Performance** — cached reference indexes, cached sample generation, debounced diagnostics, large-document guard.
 
 ## Installation
 
@@ -253,10 +253,10 @@ src/
 ├── core/
 │   ├── schema-resolver.ts      # $ref, allOf, anyOf, oneOf resolution + circular-ref guard
 │   ├── sample.ts               # Schema-driven sample generation (WeakMap cache + scalar fast path)
-│   └── diagnostics.ts          # Ajv validation (draft-04~2020-12) + error mapping + dedupe
+│   └── diagnostics.ts          # Ajv validation and legacy dialect adaptation + error mapping + dedupe
 ├── json/
 │   ├── document-index.ts       # jsonc-parser-based fault-tolerant document index
-│   └── completion.ts           # JSON completion engine (4 contexts + LRU cache)
+│   └── completion.ts           # JSON completion engine (4 contexts + bounded cache)
 ├── yaml/
 │   ├── document-index.ts       # Line-based YAML structural index (mapping/sequence/scope tracking)
 │   ├── completion.ts           # Schema-driven YAML completion engine
@@ -280,12 +280,12 @@ src/
 
 | Optimization | Where |
 |---|---|
-| Schema resolution cache | `WeakMap` keyed by schema object identity |
-| Sample generation cache | `WeakMap` + depth-keyed `Map` |
-| Completion context cache | LRU (8 entries), keyed by text hash + offset |
+| Reference index cache | `WeakMap` keyed by root schema identity |
+| Sample generation cache | Schema and root identity, plus normalized depth; explicitly clearable |
+| Completion context cache | Bounded FIFO (8 entries), checked against full source text and schema |
 | Document index cache | Latest-text cache in json/yaml indexers |
 | Debounced diagnostics | 250ms default, stale-version guard |
-| Large document guard | Diagnostics skipped for documents > 500KB |
+| Large document guard | Diagnostics and completion skipped for documents > 512,000 UTF-16 code units |
 | Ajv validator cache | `WeakMap` keyed by schema identity |
 | Word-based suggestions disabled | Prevents Monaco document-word completions from interfering with schema completions |
 
@@ -338,3 +338,16 @@ npm run verify
 ## License
 
 MIT © Powerduck limited
+
+
+## Interaction and validation guarantees
+
+The editor inherits Powerduck `--color-*` tokens for its surfaces and controls, with standalone light and dark defaults. Keep the host token theme synchronized with the `theme` prop. Monaco receives matching concrete default colors for its widgets; Monaco's theme service is global, so mounted editors should use the same theme.
+
+The diagnostics panel occupies layout space instead of covering code. Its toggle is keyboard accessible, Escape returns focus to the editor, and panel scrollbars appear on hover or keyboard focus. Read-only editors cannot apply automatic fixes or YAML formatting.
+
+Automatic fixes are intentionally conservative. JSON required-property insertion and null-to-object/array replacement use semantic paths, check the current model version, and participate in undo. YAML diagnostics provide locations and textual guidance; ambiguous YAML edits are not automated. Syntax diagnostics work without a schema, and large-document validation is explicitly labeled as paused.
+
+Treat schemas and cached results as immutable. Call `clearSampleCache()` when explicitly invalidating generated samples; replace a schema object to invalidate its compiled validator and reference index. Generated samples are suggestions, not proof of schema validity.
+
+Run `npm run preview:dev` for the local Monaco preview, `npm test` for regression tests, and `npm run build && node scripts/benchmark.mjs` for the reproducible microbenchmark. See [QUALITY.md](./QUALITY.md) for verification evidence and remaining limits.

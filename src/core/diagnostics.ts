@@ -13,7 +13,7 @@ import addFormats from "ajv-formats";
 
 import { isSchemaObject } from "./schema-resolver";
 
-import type { Diagnostic, JsonPath, JsonSchema, JsonSchemaObject } from "../types";
+import type { Diagnostic, DiagnosticAction, JsonPath, JsonSchema, JsonSchemaObject } from "../types";
 
 /* -------------------------------------------------------------------------- */
 /* Validator cache                                                            */
@@ -82,7 +82,8 @@ function compileSchema(schema: JsonSchemaObject): CompiledSchema {
 /* Path helpers                                                               */
 /* -------------------------------------------------------------------------- */
 
-function decodeJsonPointer(pointer: string): JsonPath {
+function decodeJsonPointer(pointer: string, document: unknown): JsonPath {
+  let current = document;
   if (!pointer) {
     return [];
   }
@@ -90,9 +91,12 @@ function decodeJsonPointer(pointer: string): JsonPath {
   return pointer
     .split("/")
     .slice(1)
-    .map((segment) => {
-      const decoded = segment.replace(/~1/g, "/").replace(/~0/g, "~");
-      return /^\d+$/.test(decoded) ? Number(decoded) : decoded;
+    .map((rawSegment) => {
+      const decoded = rawSegment.replace(/~1/g, "/").replace(/~0/g, "~");
+      const segment = Array.isArray(current) && /^(0|[1-9]\d*)$/.test(decoded) ? Number(decoded) : decoded;
+      current = current !== null && typeof current === "object" && Object.prototype.hasOwnProperty.call(current, segment)
+        ? (current as Record<string | number, unknown>)[segment] : undefined;
+      return segment;
     });
 }
 
@@ -112,10 +116,11 @@ interface MappedError {
   path: JsonPath;
   message: string;
   fix?: string;
+  action?: DiagnosticAction;
 }
 
-function mapAjvError(error: ErrorObject): MappedError {
-  const basePath = decodeJsonPointer(error.instancePath);
+function mapAjvError(error: ErrorObject, document: unknown): MappedError {
+  const basePath = decodeJsonPointer(error.instancePath, document);
   const params = (error.params ?? {}) as Record<string, unknown>;
 
   switch (error.keyword) {
@@ -123,6 +128,7 @@ function mapAjvError(error: ErrorObject): MappedError {
       const missing = String(params.missingProperty ?? "");
       return {
         path: basePath,
+        action: { kind: "add-required", property: missing },
         message: `Missing required property "${missing}".`,
         fix: `Add "${missing}" to ${describePath(basePath)}.`,
       };
@@ -159,6 +165,7 @@ function mapAjvError(error: ErrorObject): MappedError {
       const expected = String(params.type ?? "");
       return {
         path: basePath,
+        action: expected === "object" || expected === "array" ? { kind: "replace-null", type: expected } : undefined,
         message: `Value must be of type ${expected}.`,
         fix:
           expected === "array"
@@ -208,7 +215,7 @@ function dedupe(diagnostics: SchemaDiagnostic[]): SchemaDiagnostic[] {
   const seen = new Set<string>();
 
   return diagnostics.filter((diagnostic) => {
-    const key = `${diagnostic.path.join("/")}:${diagnostic.message}`;
+    const key = JSON.stringify([diagnostic.path, diagnostic.message]);
 
     if (seen.has(key)) {
       return false;
@@ -233,6 +240,7 @@ export interface SchemaDiagnostic {
   severity: "error" | "warning";
   source: string;
   fix?: string;
+  action?: DiagnosticAction;
 }
 
 /**
@@ -245,6 +253,7 @@ export function validateParsedDocument(
   schema: JsonSchema | undefined,
   options: ValidateOptions = {},
 ): SchemaDiagnostic[] {
+  if (schema === false) return [{ message: "The schema does not allow any value.", path: [], severity: "error", source: "json-schema" }];
   if (!isSchemaObject(schema)) {
     return [];
   }
@@ -302,7 +311,7 @@ export function validateParsedDocument(
       continue;
     }
 
-    const mapped = mapAjvError(error);
+    const mapped = mapAjvError(error, document);
 
     result.push({
       message: mapped.message,
@@ -310,6 +319,7 @@ export function validateParsedDocument(
       severity: "error",
       source: "json-schema",
       fix: mapped.fix,
+      action: mapped.action,
     });
   }
 
@@ -334,6 +344,8 @@ export function toEditorDiagnostics(
       severity: diagnostic.severity,
       source: diagnostic.source,
       fix: diagnostic.fix,
+      semanticPath: diagnostic.path,
+      action: diagnostic.action,
     };
   });
 }

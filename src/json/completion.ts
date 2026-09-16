@@ -318,6 +318,7 @@ export function resolveJsonCompletionContext(
 ): CompletionContext {
   if (
     runtimeCache &&
+    runtimeCache.text === text &&
     runtimeCache.offset === offset &&
     runtimeCache.schema === rootSchema &&
     runtimeCache.context

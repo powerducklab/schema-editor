@@ -240,7 +240,21 @@ function parseLineStructure(raw: string): ParsedLine {
 /* Index builder                                                              */
 /* -------------------------------------------------------------------------- */
 
+let cachedSource: string | undefined;
+let cachedIndex: YamlIndex | undefined;
+
+/** Reuse the most recent bounded document across completion and diagnostics. */
 export function buildYamlIndex(source: string): YamlIndex {
+  if (source === cachedSource && cachedIndex) return cachedIndex;
+  const index = createYamlIndex(source);
+  if (source.length <= 512 * 1024) {
+    cachedSource = source;
+    cachedIndex = index;
+  }
+  return index;
+}
+
+function createYamlIndex(source: string): YamlIndex {
   const rawLines = source.replace(/\r\n?/g, "\n").split("\n");
 
   const lines: YamlLine[] = [];
@@ -604,7 +618,7 @@ export function buildYamlIndex(source: string): YamlIndex {
   const nodeMap = new Map<string, YamlNode>();
 
   for (const node of nodes) {
-    const key = node.path.join("\u0000");
+    const key = JSON.stringify(node.path);
 
     if (!nodeMap.has(key)) {
       nodeMap.set(key, node);
@@ -617,12 +631,12 @@ export function buildYamlIndex(source: string): YamlIndex {
     nodes,
 
     findNode(path: JsonPath): YamlNode | undefined {
-      return nodeMap.get(path.join("\u0000"));
+      return nodeMap.get(JSON.stringify(path));
     },
 
     findNearestNode(path: JsonPath): YamlNode | undefined {
       for (let length = path.length; length > 0; length -= 1) {
-        const node = nodeMap.get(path.slice(0, length).join("\u0000"));
+        const node = nodeMap.get(JSON.stringify(path.slice(0, length)));
 
         if (node) {
           return node;

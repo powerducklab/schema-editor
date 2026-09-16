@@ -1,3 +1,45 @@
+/* Local aliases preserve host theme tokens and provide standalone defaults. */
+.pde-container {
+  --pde-surface: var(--color-surface, #fff);
+  --pde-surface-subtle: var(--color-surface-subtle, #f8f9fa);
+  --pde-surface-hover: var(--color-surface-hover, #f4f5f6);
+  --pde-text-primary: var(--color-text-primary, #26282b);
+  --pde-text-secondary: var(--color-text-secondary, #6f747c);
+  --pde-text-tertiary: var(--color-text-tertiary, #989da5);
+  --pde-text-disabled: var(--color-text-disabled, #c2c6cc);
+  --pde-border-default: var(--color-border-default, #e0e4e8);
+  --pde-border-subtle: var(--color-border-subtle, #eceff1);
+  --pde-border-strong: var(--color-border-strong, #ccd2d8);
+  --pde-accent: var(--color-accent, #f28c28);
+  --pde-focus-ring: var(--color-focus-ring, #f28c2847);
+  --pde-danger: var(--color-danger, #c95555);
+  --pde-warning: var(--color-warning, #d98a22);
+  --pde-success: var(--color-success, #428961);
+  --pde-info: var(--color-info, #4f79bf);
+  --pde-accent-bg-active: var(--color-surface-selected, #eef0f2);
+  color: var(--pde-text-primary);
+  box-sizing: border-box;
+  min-width: 0;
+  color-scheme: light;
+}
+.pde-container[data-theme="dark"] {
+  --pde-surface: var(--color-surface, #1f2125);
+  --pde-surface-subtle: var(--color-surface-subtle, #25282d);
+  --pde-surface-hover: var(--color-surface-hover, #2b2f35);
+  --pde-text-primary: var(--color-text-primary, #edf0f3);
+  --pde-text-secondary: var(--color-text-secondary, #b8bec7);
+  --pde-text-tertiary: var(--color-text-tertiary, #89919c);
+  --pde-text-disabled: var(--color-text-disabled, #69717c);
+  --pde-border-default: var(--color-border-default, #3b4149);
+  --pde-border-subtle: var(--color-border-subtle, #2d3239);
+  --pde-border-strong: var(--color-border-strong, #525a65);
+  --pde-accent: var(--color-accent, #f4a04a);
+  --pde-danger: var(--color-danger, #ef7c7c);
+  --pde-success: var(--color-success, #67bd89);
+  --pde-info: var(--color-info, #82aef2);
+  --pde-accent-bg-active: var(--color-surface-selected, #343941);
+  color-scheme: dark;
+}
 .pde-container {
   position: relative;
   display: flex;
@@ -5,16 +47,16 @@
   width: 100%;
   height: 100%;
   min-height: 200px;
-  background: var(--color-surface, #ffffff);
-  border: 1px solid var(--color-border-default, #e0e4e8);
+  background: var(--pde-surface, #ffffff);
+  border: 1px solid var(--pde-border-default, #e0e4e8);
   border-radius: var(--radius-md, 6px);
   overflow: hidden;
   font-family: var(--font-family-ui, Inter, system-ui, sans-serif);
 }
 
 .pde-container:focus-within {
-  border-color: var(--color-accent, #f28c28);
-  box-shadow: 0 0 0 2px var(--color-focus-ring, rgba(242, 140, 40, 0.28));
+  border-color: var(--pde-accent, #f28c28);
+  box-shadow: 0 0 0 2px var(--pde-focus-ring, rgba(242, 140, 40, 0.28));
 }
 
 .pde-editor-wrapper {
@@ -31,27 +73,27 @@
 }
 
 .pde-editor-wrapper .monaco-editor .margin {
-  background: var(--color-surface-subtle, #f8f9fa) !important;
+  background: var(--pde-surface-subtle, #f8f9fa) !important;
 }
 
 .pde-editor-wrapper .monaco-editor .line-numbers {
-  color: var(--color-text-tertiary, #989da5) !important;
+  color: var(--pde-text-tertiary, #989da5) !important;
   font-size: var(--font-size-xs, 12px) !important;
 }
 
 .pde-editor-wrapper .monaco-editor .current-line {
-  background: var(--color-surface-hover, #f4f5f6) !important;
+  background: var(--pde-surface-hover, #f4f5f6) !important;
 }
 
 .pde-editor-wrapper .monaco-editor .selected-text {
-  background: var(--color-accent-bg-active, #ffe7c7) !important;
+  background: var(--pde-accent-bg-active, #ffe7c7) !important;
 }
 
 .pde-placeholder {
   position: absolute;
   top: 12px;
   left: 52px;
-  color: var(--color-text-disabled, #c2c6cc);
+  color: var(--pde-text-disabled, #c2c6cc);
   font-size: var(--font-size-sm, 13px);
   pointer-events: none;
   user-select: none;
@@ -61,8 +103,8 @@
 .pde-diagnostics-bar {
   flex-shrink: 0;
   height: var(--footer-height, 24px);
-  background: var(--color-surface-subtle, #f8f9fa);
-  border-top: 1px solid var(--color-border-subtle, #eceff1);
+  background: var(--pde-surface-subtle, #f8f9fa);
+  border-top: 1px solid var(--pde-border-subtle, #eceff1);
   display: flex;
   align-items: center;
   padding: 0 var(--space-2, 8px);
@@ -74,7 +116,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  color: var(--color-danger, #c95555);
+  color: var(--pde-danger, #c95555);
   font-weight: var(--font-weight-medium, 500);
 }
 
@@ -82,12 +124,12 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  color: var(--color-warning, #d98a22);
+  color: var(--pde-warning, #d98a22);
   font-weight: var(--font-weight-medium, 500);
 }
 
 .pde-diagnostics-ok {
-  color: var(--color-success, #428961);
+  color: var(--pde-success, #428961);
   font-weight: var(--font-weight-medium, 500);
 }
 
@@ -96,7 +138,7 @@
 }
 
 .pde-language-badge {
-  color: var(--color-text-tertiary, #989da5);
+  color: var(--pde-text-tertiary, #989da5);
   text-transform: uppercase;
   font-size: var(--font-size-xxs, 10px);
   font-weight: var(--font-weight-semibold, 600);
@@ -110,7 +152,7 @@
 }
 
 .pde-diagnostics-bar:hover {
-  background: var(--color-surface-hover, #f4f5f6);
+  background: var(--pde-surface-hover, #f4f5f6);
 }
 
 .pde-diagnostics-chevron {
@@ -120,15 +162,15 @@
   width: 18px;
   height: 18px;
   border-radius: var(--radius-xs, 3px);
-  color: var(--color-text-secondary, #6f747c);
+  color: var(--pde-text-secondary, #6f747c);
   transition: transform var(--transition-fast, 140ms ease),
     background var(--transition-fast, 140ms ease),
     color var(--transition-fast, 140ms ease);
 }
 
 .pde-diagnostics-bar:hover .pde-diagnostics-chevron {
-  background: var(--color-surface-hover, #f4f5f6);
-  color: var(--color-text-primary, #26282b);
+  background: var(--pde-surface-hover, #f4f5f6);
+  color: var(--pde-text-primary, #26282b);
 }
 
 .pde-diagnostics-chevron.open {
@@ -136,15 +178,13 @@
 }
 
 .pde-diagnostics-panel {
-  position: absolute;
-  bottom: var(--footer-height, 24px);
-  left: 0;
-  right: 0;
-  max-height: 200px;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(40%, 240px);
   overflow-y: auto;
-  background: var(--color-surface, #ffffff);
-  border-top: 1px solid var(--color-border-subtle, #eceff1);
-  border-bottom: 1px solid var(--color-border-subtle, #eceff1);
+  background: var(--pde-surface, #ffffff);
+  border-top: 1px solid var(--pde-border-subtle, #eceff1);
+  border-bottom: 1px solid var(--pde-border-subtle, #eceff1);
   box-shadow: var(--shadow-md, 0 6px 18px rgba(28, 32, 36, 0.07));
   z-index: 3;
 }
@@ -161,7 +201,7 @@
   gap: 8px;
   padding: 6px 8px;
   cursor: pointer;
-  border-bottom: 1px solid var(--color-border-subtle, #eceff1);
+  border-bottom: 1px solid var(--pde-border-subtle, #eceff1);
   transition: background var(--transition-fast, 140ms ease);
 }
 
@@ -170,7 +210,7 @@
 }
 
 .pde-diagnostics-item:hover {
-  background: var(--color-surface-hover, #f4f5f6);
+  background: var(--pde-surface-hover, #f4f5f6);
 }
 
 .pde-diagnostics-item-icon {
@@ -183,7 +223,7 @@
   min-width: 0;
   font-size: var(--font-size-xs, 12px);
   line-height: var(--line-height-tight, 16px);
-  color: var(--color-text-primary, #26282b);
+  color: var(--pde-text-primary, #26282b);
   word-break: break-word;
 }
 
@@ -191,7 +231,7 @@
   flex-shrink: 0;
   font-size: var(--font-size-xxs, 10px);
   font-weight: var(--font-weight-medium, 500);
-  color: var(--color-text-tertiary, #989da5);
+  color: var(--pde-text-tertiary, #989da5);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -204,9 +244,9 @@
 }
 
 .pde-diagnostics-btn {
-  border: 1px solid var(--color-border-default, #e0e4e8);
-  background: var(--color-surface, #ffffff);
-  color: var(--color-text-secondary, #6f747c);
+  border: 1px solid var(--pde-border-default, #e0e4e8);
+  background: var(--pde-surface, #ffffff);
+  color: var(--pde-text-secondary, #6f747c);
   font-size: var(--font-size-xxs, 10px);
   font-weight: var(--font-weight-medium, 500);
   line-height: 1;
@@ -218,18 +258,18 @@
 }
 
 .pde-diagnostics-btn:hover {
-  background: var(--color-surface-hover, #f4f5f6);
-  border-color: var(--color-border-strong, #ccd2d8);
+  background: var(--pde-surface-hover, #f4f5f6);
+  border-color: var(--pde-border-strong, #ccd2d8);
 }
 
 .pde-diagnostics-btn-locate:hover {
-  color: var(--color-info, #4f79bf);
-  border-color: var(--color-info, #4f79bf);
+  color: var(--pde-info, #4f79bf);
+  border-color: var(--pde-info, #4f79bf);
 }
 
 .pde-diagnostics-btn-fix:hover {
-  color: var(--color-accent, #f28c28);
-  border-color: var(--color-accent, #f28c28);
+  color: var(--pde-accent, #f28c28);
+  border-color: var(--pde-accent, #f28c28);
 }
 
 .pde-diagnostics-btn.disabled,
@@ -238,3 +278,31 @@
   cursor: not-allowed;
   pointer-events: none;
 }
+
+.pde-diagnostics-bar {
+  width: 100%;
+  min-height: 30px;
+  border: 0;
+  border-top: 1px solid var(--pde-border-subtle);
+  color: var(--pde-text-secondary);
+  font-family: inherit;
+  text-align: left;
+}
+.pde-container button:focus-visible {
+  outline: 2px solid var(--pde-accent);
+  outline-offset: -2px;
+}
+.pde-diagnostics-btn { min-height: 26px; font-family: inherit; }
+.pde-diagnostics-item { align-items: center; flex-wrap: wrap; padding: 8px 10px; cursor: default; }
+.pde-diagnostics-item-text { flex-basis: 120px; overflow-wrap: anywhere; }
+.pde-diagnostics-panel { box-shadow: none; scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.pde-diagnostics-panel:hover, .pde-diagnostics-panel:focus-within { scrollbar-color: var(--pde-border-strong) transparent; }
+.pde-diagnostics-panel::-webkit-scrollbar { width: 6px; height: 6px; }
+.pde-diagnostics-panel::-webkit-scrollbar-thumb { background: transparent; border-radius: 6px; }
+.pde-diagnostics-panel:hover::-webkit-scrollbar-thumb, .pde-diagnostics-panel:focus-within::-webkit-scrollbar-thumb { background: var(--pde-border-strong); }
+.pde-loading { display: grid; place-items: center; height: 100%; font-size: 13px; color: var(--pde-text-secondary); }
+.pde-placeholder { max-width: calc(100% - 64px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pde-editor-wrapper .monaco-editor, .pde-editor-wrapper .monaco-editor-background,
+.pde-editor-wrapper .monaco-editor .margin { background-color: var(--pde-surface) !important; }
+@media (prefers-reduced-motion: reduce) { .pde-container * { transition: none !important; } }
+@media (hover: none) { .pde-diagnostics-panel { scrollbar-color: var(--pde-border-strong) transparent; } }

@@ -36,3 +36,5 @@ export {
   type ValidateOptions,
   type SchemaDiagnostic,
 } from "./diagnostics";
+
+export { getDiagnosticEdits } from "./diagnostic-fix";
