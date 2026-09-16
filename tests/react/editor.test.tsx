@@ -100,9 +100,11 @@ describe("automatic YAML suggestions", () => {
     const view = render(<SchemaEditor value="openapi: 3.2.0\n" language="yaml" schema={schema} />);
     view.unmount(); await settle(); expect(state.cursorListeners).toHaveLength(0); expect(state.editor.trigger).not.toHaveBeenCalled();
   });
-  it("isolates an explicitly dark editor from a light host", () => {
-    const view = render(<div data-theme="light"><SchemaEditor value="" language="yaml" theme="dark" /></div>);
-    expect((view.container.querySelector(".pde-container") as HTMLElement).style.getPropertyValue("--color-surface")).toBe("#1f2125");
+  it("uses native Monaco themes when the page theme changes", () => {
+    const view = render(<SchemaEditor value="" language="yaml" theme="dark" />);
+    expect(state.props.theme).toBe("vs-dark");
+    view.rerender(<SchemaEditor value="" language="yaml" theme="light" />);
+    expect(state.props.theme).toBe("vs");
   });
 });
 

@@ -342,7 +342,7 @@ MIT © Powerduck limited
 
 ## Interaction and validation guarantees
 
-The editor inherits Powerduck `--color-*` tokens for its surfaces and controls, with standalone light and dark defaults. An explicitly different editor theme receives a local Powerduck palette. Editor surfaces, suggestion rows, and syntax tokens are scoped so light and dark editors can be mounted together. Monaco still uses a global theme service for UI elements not overridden by the component.
+The editor uses Monaco's native `vs` and `vs-dark` themes for its content, syntax, sticky headers, cursor, and widgets. Pass the same `theme` value to all mounted editors and synchronize the host page theme. Mixed editor themes on one page are not supported. The surrounding diagnostics UI inherits Powerduck `--color-*` tokens, with standalone light/dark defaults. No component CSS overrides Monaco's internal colors.
 
 The diagnostics panel occupies layout space instead of covering code. Its toggle is keyboard accessible, Escape returns focus to the editor, and panel scrollbars appear on hover or keyboard focus. Read-only editors cannot apply automatic fixes or YAML formatting.
 

@@ -19,7 +19,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useState,
   useRef,
@@ -71,7 +70,6 @@ import type {
 } from "../types";
 
 import { yamlUsesPopup, yamlHasPopupItems, yamlReplacementColumn, yamlInsertText } from "./yaml-completion";
-import { defineEditorThemes, syncEditorPalette } from "./theme";
 import "./SchemaEditor.css";
 
 /* -------------------------------------------------------------------------- */
@@ -91,7 +89,7 @@ export interface SchemaEditorProps {
   /** Snippet strings for JavaScript ghost completion (javascript only). */
   snippets?: string[];
 
-  /** Visual theme. Defaults to "light". */
+  /** Page-wide visual theme. Use the same value for all mounted editors. */
   theme?: EditorTheme;
 
   readOnly?: boolean;
@@ -380,19 +378,6 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
     style,
     className,
   } = props;
-
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  useLayoutEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const sync = () => syncEditorPalette(container, theme);
-    sync();
-    const observer = new MutationObserver(sync);
-    for (let parent = container.parentElement; parent; parent = parent.parentElement) {
-      observer.observe(parent, { attributes: true, attributeFilter: ["data-theme"] });
-    }
-    return () => observer.disconnect();
-  }, [theme]);
 
   const internalEditorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
@@ -972,7 +957,6 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
 
   const beforeMount: BeforeMount = useCallback((monaco: typeof Monaco) => {
     monacoRef.current = monaco;
-    defineEditorThemes(monaco);
   }, []);
 
   const onMount: OnMount = useCallback(
@@ -1232,14 +1216,14 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
     [readOnly, extraOptions, enableCompletion, enableInlineSuggestions],
   );
 
-  const monacoTheme = theme === "dark" ? "powerduck-dark" : "powerduck-light";
+  const monacoTheme = theme === "dark" ? "vs-dark" : "vs";
 
   const containerClassName = ["pde-container", className].filter(Boolean).join(" ");
 
   const showPlaceholder = !!placeholder && value.length === 0 && !readOnly;
 
   return (
-    <div ref={containerRef} className={containerClassName} style={style} data-theme={theme}>
+    <div className={containerClassName} style={style} data-theme={theme}>
       <div className="pde-editor-wrapper">
         <Editor
           height="100%"

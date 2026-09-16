@@ -66,29 +66,6 @@
   overflow: hidden;
 }
 
-.pde-editor-wrapper .monaco-editor {
-  font-family: "SF Mono", "Monaco", "Cascadia Code", "Roboto Mono", Consolas, monospace !important;
-  font-size: var(--font-size-sm, 13px) !important;
-  line-height: var(--line-height-normal, 20px) !important;
-}
-
-.pde-editor-wrapper .monaco-editor .margin {
-  background: var(--pde-surface-subtle, #f8f9fa) !important;
-}
-
-.pde-editor-wrapper .monaco-editor .line-numbers {
-  color: var(--pde-text-tertiary, #989da5) !important;
-  font-size: var(--font-size-xs, 12px) !important;
-}
-
-.pde-editor-wrapper .monaco-editor .current-line {
-  background: var(--pde-surface-hover, #f4f5f6) !important;
-}
-
-.pde-editor-wrapper .monaco-editor .selected-text {
-  background: var(--pde-accent-bg-active, #ffe7c7) !important;
-}
-
 .pde-placeholder {
   position: absolute;
   top: 12px;
@@ -302,65 +279,5 @@
 .pde-diagnostics-panel:hover::-webkit-scrollbar-thumb, .pde-diagnostics-panel:focus-within::-webkit-scrollbar-thumb { background: var(--pde-border-strong); }
 .pde-loading { display: grid; place-items: center; height: 100%; font-size: 13px; color: var(--pde-text-secondary); }
 .pde-placeholder { max-width: calc(100% - 64px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pde-editor-wrapper .monaco-editor, .pde-editor-wrapper .monaco-editor-background,
-.pde-editor-wrapper .monaco-editor .margin { background-color: var(--pde-surface) !important; }
-@media (prefers-reduced-motion: reduce) { .pde-container * { transition: none !important; } }
+@media (prefers-reduced-motion: reduce) { .pde-diagnostics-bar, .pde-diagnostics-chevron, .pde-diagnostics-btn, .pde-diagnostics-item { transition: none !important; } }
 @media (hover: none) { .pde-diagnostics-panel { scrollbar-color: var(--pde-border-strong) transparent; } }
-
-/* Monaco's theme service is global; keep each editor's surfaces and menus local. */
-.pde-container .monaco-editor {
-  --vscode-editor-background: var(--pde-surface) !important;
-  --vscode-editor-foreground: var(--pde-text-primary) !important;
-  --vscode-editorSuggestWidget-background: var(--pde-surface) !important;
-  --vscode-editorSuggestWidget-foreground: var(--pde-text-primary) !important;
-  --vscode-editorSuggestWidget-selectedBackground: var(--pde-accent-bg-active) !important;
-  --vscode-editorSuggestWidget-selectedForeground: var(--pde-text-primary) !important;
-  --vscode-editorSuggestWidget-selectedIconForeground: var(--pde-text-secondary) !important;
-  --vscode-editorSuggestWidget-highlightForeground: var(--pde-accent) !important;
-  --vscode-editorSuggestWidget-focusHighlightForeground: var(--pde-accent) !important;
-  --vscode-editorSuggestWidget-border: var(--pde-border-default) !important;
-  --vscode-editorWidget-background: var(--pde-surface) !important;
-  --vscode-editorHoverWidget-background: var(--pde-surface) !important;
-  --vscode-editorCursor-foreground: var(--pde-text-primary) !important;
-}
-.pde-container .monaco-editor .suggest-widget,
-.pde-container .monaco-editor .suggest-widget .monaco-list-row {
-  color: var(--pde-text-primary) !important;
-  background-color: var(--pde-surface) !important;
-}
-.pde-container .monaco-editor .suggest-widget .monaco-list-row.focused,
-.pde-container .monaco-editor .suggest-widget .monaco-list-row.selected {
-  color: var(--pde-text-primary) !important;
-  background-color: var(--pde-accent-bg-active) !important;
-}
-.pde-container .monaco-editor .suggest-widget .monaco-list-row .monaco-highlighted-label .highlight {
-  color: var(--pde-accent) !important;
-}
-.pde-container .monaco-editor .suggest-widget .details-label { color: var(--pde-text-secondary) !important; }
-.pde-container .monaco-editor .mtk1 { color: var(--pde-text-primary) !important; }
-.pde-container {
-  --pde-syntax-string: #a34538;
-  --pde-syntax-keyword: #6c4bb5;
-  --pde-syntax-number: #286ba6;
-  --pde-syntax-key: #27766b;
-}
-.pde-container[data-theme="dark"] {
-  --pde-syntax-string: #e4b397;
-  --pde-syntax-keyword: #c4b0f0;
-  --pde-syntax-number: #91baf3;
-  --pde-syntax-key: #82c7ba;
-}
-.pde-container .monaco-editor .mtk3 { color: var(--pde-text-secondary) !important; }
-.pde-container .monaco-editor .mtk4 { color: var(--pde-syntax-string) !important; }
-.pde-container .monaco-editor .mtk5 { color: var(--pde-syntax-keyword) !important; }
-.pde-container .monaco-editor .mtk6 { color: var(--pde-syntax-number) !important; }
-.pde-container .monaco-editor .mtk7 { color: var(--pde-syntax-key) !important; }
-.pde-container .monaco-editor .mtk8 { color: var(--pde-danger) !important; }
-.pde-container .monaco-editor [class*="bracket-highlighting-"] { color: var(--pde-syntax-keyword) !important; }
-
-/* Monaco emits concrete global cursor rules, so variables alone cannot isolate them. */
-.pde-container .monaco-editor .cursors-layer .cursor {
-  background-color: var(--pde-text-primary) !important;
-  border-color: var(--pde-text-primary) !important;
-  color: var(--pde-surface) !important;
-}

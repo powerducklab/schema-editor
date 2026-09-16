@@ -1,5 +1,7 @@
 # Schema editor review — September 16, 2026
 
+Current theme policy: one shared theme per page, using native Monaco `vs` / `vs-dark`. Earlier mixed-theme work below is historical and has been removed.
+
 ## Assessment
 
 The existing separation between schema utilities, language services, and React integration is useful. The main risks were lifecycle races and heuristic edits rather than a lack of editor features. The baseline had 225 passing core tests but no React lifecycle coverage. UI colors mixed Monaco defaults with host surfaces, and an absolute diagnostics panel covered the document.
@@ -75,3 +77,12 @@ Verification: 269 tests passed. In real Monaco, accepting `responses` and then `
 Removed the YAML keydown override that always inserted spaces on blank lines. Monaco now owns Tab and Shift+Tab: Tab accepts a focused popup suggestion or visible inline completion and indents normally when neither is available. Implicit tab completion remains disabled so hidden suggestions do not consume indentation.
 
 Verification: 271 tests passed, including Tab/Shift+Tab event ownership regressions. Real Monaco accepted `responses` with Tab, preserved the eight-space child indentation, and indented that line to ten spaces after dismissing the popup. Production build and ESM/CJS checks passed.
+
+
+## Final theme simplification
+
+The product uses one light/dark theme for the entire page. Removed custom Monaco theme definitions, encoded syntax token IDs, palette synchronization observers, and all CSS overrides targeting Monaco internals. The React wrapper now passes `vs` or `vs-dark` directly. Powerduck variables style only the surrounding component UI. The preview no longer mounts editors with conflicting themes.
+
+This avoids incomplete per-widget overrides and lets Monaco own sticky-scroll backgrounds, gutters, syntax colors, cursors, suggestions, hover surfaces, and find controls together. All editors must receive the same page theme.
+
+Verification: 271 regression tests, production build, and ESM/CJS smoke checks passed. Browser inspection confirmed `vs-dark`, native editor/sticky background `#1e1e1e`, and native find background `#252526`, without component overrides. The sticky widget was not visibly expanded in the long-YAML preview, so verification of that layer is limited to its native resolved theme value rather than a screenshot of the expanded header.
