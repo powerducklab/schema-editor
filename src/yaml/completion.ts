@@ -23,6 +23,7 @@ import { generateSample } from "../core/sample";
 import {
   buildYamlIndex,
   findCurrentLine,
+  findYamlColon,
   getExistingKeysInScope,
   resolveContainerAt,
   type YamlLine,
@@ -147,7 +148,8 @@ function toYamlScalar(value: unknown): string {
   }
 
   if (typeof value === "string") {
-    if (value === "" || /[:#\[\]{}&*!|>'"%@`,]/.test(value) || /^\s|\s$/.test(value)) {
+    const implicitScalar = /^(?:null|~|true|false|[+-]?(?:0[xob][a-f0-9_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.[\d_]+)(?:e[+-]?\d+)?|\.inf|\.nan)|\d{4}-\d{2}-\d{2}(?:[Tt ].*)?)$/i.test(value);
+    if (implicitScalar || value === "" || /[:#\[\]{}&*!|>'"%@`,\r\n]/.test(value) || /^\s|\s$|^[-?]\s|^---$|^\.\.\.$/.test(value)) {
       return JSON.stringify(value);
     }
     return value;
@@ -223,7 +225,7 @@ export function resolveYamlCompletionContext(
   const root: JsonSchemaObject = isSchemaObject(rootSchema) ? rootSchema : {};
   const index = buildYamlIndex(text);
   const line = findCurrentLine(index, lineNumber);
-  const prefix = extractPrefix(line.text, column - line.indent);
+  const prefix = extractPrefix(line.text, column - line.indent - 1);
 
   if (text.trim().length === 0) {
     return {
@@ -241,7 +243,7 @@ export function resolveYamlCompletionContext(
     };
   }
 
-  const indent = line.indent;
+  const indent = line.isBlank ? Math.max(0, Math.min(column - 1, line.raw.length)) : line.indent;
   const container = resolveContainerAt(index, lineNumber, indent);
 
   const containerSchemas = getSchemasAtPath(root, container.path).filter((schema) =>
@@ -257,8 +259,8 @@ export function resolveYamlCompletionContext(
    * A key position: line has no colon, or cursor is at or before the colon.
    * A value position: line has a colon and cursor is strictly after it.
    */
-  const colonIndex = line.hasColon ? line.raw.indexOf(":") : -1;
-  const isValuePosition = colonIndex >= 0 && column > colonIndex;
+  const colonIndex = line.hasColon ? findYamlColon(line.raw) : -1;
+  const isValuePosition = colonIndex >= 0 && column > colonIndex + 1;
 
   if (line.isSequence && !line.hasColon) {
     const itemSchemas = getItemSchemas(
@@ -294,7 +296,7 @@ export function resolveYamlCompletionContext(
      * leading whitespace stripped. This differs from key positions where
      * only identifier characters are extracted.
      */
-    const valuePrefix = line.raw.slice(colonIndex + 1).trimStart();
+    const valuePrefix = line.raw.slice(colonIndex + 1, column - 1).trimStart();
 
     return {
       kind: "value",
@@ -333,7 +335,7 @@ export function resolveYamlCompletionContext(
 function buildKeySuggestions(
   context: YamlCompletionContext,
   root: JsonSchemaObject,
-  _options: YamlCompletionOptions,
+  options: YamlCompletionOptions,
 ): CompletionSuggestion[] {
   const properties = getKnownProperties(context.containerSchemas, root).filter(
     (property) => !context.existingKeys.has(property.name),
@@ -343,11 +345,11 @@ function buildKeySuggestions(
     const types = getSchemaTypes(property.schema);
     const isContainer = types.includes("object") || types.includes("array");
 
-    let insertText = `${property.name}:`;
+    let insertText = `${toYamlScalar(property.name)}:`;
     let caretOffset = insertText.length;
 
     if (isContainer) {
-      insertText += "\n";
+      insertText += "\n" + " ".repeat(context.indent + (options.indentSize ?? DEFAULT_INDENT));
       caretOffset = insertText.length;
     } else {
       const explicit = firstDefined(
@@ -355,9 +357,6 @@ function buildKeySuggestions(
         property.schema.default,
         Array.isArray(property.schema.examples) && property.schema.examples.length > 0
           ? property.schema.examples[0]
-          : undefined,
-        Array.isArray(property.schema.enum) && property.schema.enum.length > 0
-          ? property.schema.enum[0]
           : undefined,
       );
 
@@ -500,15 +499,14 @@ function buildValueSuggestions(
     }
 
     if (
-      types.includes("string") &&
-      schema.const === undefined &&
-      !Array.isArray(schema.enum) &&
-      schema.format
+      (types.includes("string") || types.includes("number") || types.includes("integer")) &&
+      schema.const === undefined && schema.default === undefined && !schema.examples?.length &&
+      !Array.isArray(schema.enum)
     ) {
       const sample = generateSample(schema, root, options);
 
-      if (typeof sample === "string" && sample) {
-        push(sample, undefined, `${schema.format} (example)`, "value", "5", schema.description);
+      if (sample !== undefined) {
+        push(sample, undefined, schema.format ? `${schema.format} (example)` : "sample from schema", "value", "5", schema.description);
       }
     }
   }
@@ -675,11 +673,11 @@ export function getYamlInlineSuggestion(
   options: YamlCompletionOptions = {},
 ): CompletionSuggestion | undefined {
   /*
-   * Inline ghost text only makes sense at a value position. At a key
-   * position the popup dropdown is the right UX, and showing a multi-line
-   * ghost while the user is still typing the key name is distracting.
+   * Blank key positions use the popup. A typed key prefix can preview its
+   * matching completion, while free-form values can show a schema sample.
+   * The React adapter keeps discrete value choices in the popup.
    */
-  if (context.kind !== "value") {
+  if (context.kind !== "value" && !(context.kind === "key" && context.prefix.length > 0)) {
     return undefined;
   }
 

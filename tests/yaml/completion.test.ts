@@ -237,7 +237,7 @@ describe("yaml/completion", () => {
 
       const metadata = suggestions.find((s) => s.label === "metadata");
       expect(metadata).toBeDefined();
-      expect(metadata?.insertText).toBe("metadata:\n");
+      expect(metadata?.insertText).toBe("metadata:\n  ");
     });
 
     it("scalar keys insert with colon and space", () => {

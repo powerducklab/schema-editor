@@ -48,5 +48,16 @@ These are local microbenchmarks, not cross-device latency guarantees. Cached loo
 - Sample generation is best effort and does not guarantee that every compound or constrained schema produces a valid sample.
 - Completion resolution intentionally approximates intersections and truncates pathological alternatives. It is not a replacement for validation.
 - YAML automatic fixes remain disabled until a syntax-preserving edit strategy is available. Formatting and diagnostic navigation remain supported.
-- Monaco themes are global. Coordinate themes across simultaneous editors; host CSS tokens control component surfaces, while Monaco widget colors use matching concrete defaults.
+- Monaco still has a global theme service. Component surfaces, suggestion rows, and syntax colors are isolated per editor; unrelated Monaco UI elements outside these overrides may still use the global theme.
 - React 18.3.1 and Monaco 0.56.0 were exercised here. The declared older peer ranges were not exhaustively retested. Screen-reader validation was limited to browser accessibility semantics.
+
+
+## YAML interaction regression follow-up
+
+The initial hardening removed the blank-line cursor listener, regressing schema-driven key suggestions. Follow-up work restores cursor/focus/content triggers with cleanup and read-only guards, and adds interaction-level coverage rather than relying on core completion tests alone.
+
+Additional fixes: cursor-based blank-line indentation; prefix-only value replacement; quoted-key colon detection; required separator spaces; child indentation after object-key acceptance; enum/boolean popup routing; free-form value ghost text; typed-key previews; suppression of immediate popup reopening after value acceptance; and preservation of scalar string types.
+
+Mixed light/dark editor verification exposed a second issue in Monaco's global syntax palette. Both themes now share explicit token IDs, with component-scoped syntax colors and suggestion foreground/background variables. Browser inspection confirmed separate white and dark surfaces and readable syntax in simultaneously mounted editors.
+
+Follow-up validation: 268 tests, real Monaco missing-key menus, nested-key exclusion, boolean-value acceptance, free-form ghost acceptance with Tab, and object completion entering child indentation. Final production build and ESM/CJS checks were rerun.

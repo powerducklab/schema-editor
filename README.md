@@ -342,7 +342,7 @@ MIT © Powerduck limited
 
 ## Interaction and validation guarantees
 
-The editor inherits Powerduck `--color-*` tokens for its surfaces and controls, with standalone light and dark defaults. Keep the host token theme synchronized with the `theme` prop. Monaco receives matching concrete default colors for its widgets; Monaco's theme service is global, so mounted editors should use the same theme.
+The editor inherits Powerduck `--color-*` tokens for its surfaces and controls, with standalone light and dark defaults. An explicitly different editor theme receives a local Powerduck palette. Editor surfaces, suggestion rows, and syntax tokens are scoped so light and dark editors can be mounted together. Monaco still uses a global theme service for UI elements not overridden by the component.
 
 The diagnostics panel occupies layout space instead of covering code. Its toggle is keyboard accessible, Escape returns focus to the editor, and panel scrollbars appear on hover or keyboard focus. Read-only editors cannot apply automatic fixes or YAML formatting.
 
@@ -351,3 +351,10 @@ Automatic fixes are intentionally conservative. JSON required-property insertion
 Treat schemas and cached results as immutable. Call `clearSampleCache()` when explicitly invalidating generated samples; replace a schema object to invalidate its compiled validator and reference index. Generated samples are suggestions, not proof of schema validity.
 
 Run `npm run preview:dev` for the local Monaco preview, `npm test` for regression tests, and `npm run build && node scripts/benchmark.mjs` for the reproducible microbenchmark. See [QUALITY.md](./QUALITY.md) for verification evidence and remaining limits.
+
+
+### YAML completion interaction
+
+Moving the caret to a blank YAML line opens missing-key suggestions for its indentation level. Keys already present in that mapping are excluded. Typing a matching key prefix previews the completion; accepting an object key enters its child indentation. Enum and boolean values use a popup. Ordinary values use schema-driven ghost text, accepted with Tab. Disabling inline suggestions keeps value completions available in the popup.
+
+Value completion replaces only the typed value prefix. It preserves the key, supplies a missing separator space, and quotes string values that YAML would otherwise interpret as booleans, numbers, nulls, or timestamps. An accepted value does not immediately reopen its popup. Automatic triggers honor read-only mode and completion settings and are disposed on language changes or unmount.

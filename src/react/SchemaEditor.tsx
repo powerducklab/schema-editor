@@ -19,6 +19,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
   useRef,
@@ -69,7 +70,8 @@ import type {
   JsonSchema,
 } from "../types";
 
-import { defineEditorThemes } from "./theme";
+import { yamlUsesPopup, yamlHasPopupItems, yamlReplacementColumn, yamlInsertText } from "./yaml-completion";
+import { defineEditorThemes, syncEditorPalette } from "./theme";
 import "./SchemaEditor.css";
 
 /* -------------------------------------------------------------------------- */
@@ -420,6 +422,19 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
     style,
     className,
   } = props;
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const sync = () => syncEditorPalette(container, theme);
+    sync();
+    const observer = new MutationObserver(sync);
+    for (let parent = container.parentElement; parent; parent = parent.parentElement) {
+      observer.observe(parent, { attributes: true, attributeFilter: ["data-theme"] });
+    }
+    return () => observer.disconnect();
+  }, [theme]);
 
   const internalEditorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
@@ -788,8 +803,10 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
               position.column,
               root,
             );
+            if (context.kind !== "key" && yamlUsesPopup(context)) return { items: [] };
             suggestion = getYamlInlineSuggestion(context, root);
 
+            if (suggestion) suggestion = { ...suggestion, insertText: yamlInsertText(context, suggestion.insertText) };
             const prefixLen = context.prefix.length;
             const startCol = Math.max(1, position.column - prefixLen);
             replaceStart = model.getOffsetAt({
@@ -938,10 +955,11 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
               position.column,
               root,
             );
-            suggestions = getYamlCompletions(context, root);
+            if (!yamlUsesPopup(context, enableInlineSuggestions)) return { suggestions: [] };
+            suggestions = getYamlCompletions(context, root).map(suggestion => ({ ...suggestion, insertText: yamlInsertText(context, suggestion.insertText) }));
             replaceStart = model.getOffsetAt({
               lineNumber: position.lineNumber,
-              column: context.line.indent + 1,
+              column: yamlReplacementColumn(context),
             });
             replaceEnd = offset;
           } else {
@@ -1072,6 +1090,36 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
   useEffect(() => {
     const editor = internalEditorRef.current;
     const monaco = monacoRef.current;
+    if (!editor || !monaco || !editorReady) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const request = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        const model = editor.getModel();
+        const position = editor.getPosition();
+        if (!model || !position || !editor.hasTextFocus() || editor.getOption(monaco.editor.EditorOption.readOnly) || model.getValueLength() > LARGE_DOCUMENT_THRESHOLD) return;
+        const currentLanguage = languageFromModel(model);
+        if (currentLanguage === "yaml") {
+          const context = resolveYamlCompletionContext(model.getValue(), position.lineNumber, position.column, schemaRef.current);
+          if (enableCompletion && yamlHasPopupItems(context, schemaRef.current, enableInlineSuggestions)) {
+            editor.trigger("schema-editor", "editor.action.triggerSuggest", {});
+          } else {
+            editor.trigger("schema-editor", "hideSuggestWidget", {});
+            if (enableInlineSuggestions) editor.trigger("schema-editor", "editor.action.inlineSuggest.trigger", {});
+          }
+        } else if (currentLanguage === "json" && enableCompletion && !model.getLineContent(position.lineNumber).trim()) {
+          editor.trigger("schema-editor", "editor.action.triggerSuggest", {});
+        }
+      }, 60);
+    };
+    const listeners = [editor.onDidChangeCursorPosition(request), editor.onDidFocusEditorText(request), editor.onDidChangeModelContent(request)];
+    request();
+    return () => { if (timer) clearTimeout(timer); listeners.forEach(listener => listener.dispose()); };
+  }, [editorReady, language, enableCompletion, enableInlineSuggestions, schema]);
+
+  useEffect(() => {
+    const editor = internalEditorRef.current;
+    const monaco = monacoRef.current;
 
     if (!editor || !monaco) {
       return;
@@ -1195,6 +1243,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
       },
       /* Native inline ghost text + popup completion. */
       suggestOnTriggerCharacters: enableCompletion,
+      suggest: { preview: true, previewMode: "prefix" },
       quickSuggestions: {
         other: enableCompletion,
         comments: false,
@@ -1234,7 +1283,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
   const showPlaceholder = !!placeholder && value.length === 0 && !readOnly;
 
   return (
-    <div className={containerClassName} style={style} data-theme={theme}>
+    <div ref={containerRef} className={containerClassName} style={style} data-theme={theme}>
       <div className="pde-editor-wrapper">
         <Editor
           height="100%"

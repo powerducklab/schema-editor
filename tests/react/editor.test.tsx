@@ -3,13 +3,13 @@ import React from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SchemaEditor } from "../../src/react/SchemaEditor";
-const state = vi.hoisted(() => ({ text: "{}", version: 1, language: "json", readOnly: false, listeners: [] as Array<() => void>, markerListeners: [] as Array<(uris: unknown[]) => void>, markers: [] as any[], props: null as any, editor: null as any, monaco: null as any }));
+const state = vi.hoisted(() => ({ position: null as any, cursorListeners: [] as Array<() => void>, text: "{}", version: 1, language: "json", readOnly: false, listeners: [] as Array<() => void>, markerListeners: [] as Array<(uris: unknown[]) => void>, markers: [] as any[], props: null as any, editor: null as any, monaco: null as any }));
 vi.mock("@monaco-editor/react", async () => {
   const React = await import("react");
   const uri = { toString: () => "model" };
-  const model = { uri, getValue: () => state.text, getVersionId: () => state.version, getLanguageId: () => state.language, getLineCount: () => state.text.split("\n").length };
+  const model = { uri, getValue: () => state.text, getVersionId: () => state.version, getLanguageId: () => state.language, getValueLength: () => state.text.length, getLineCount: () => state.text.split("\n").length };
   const disposable = () => ({ dispose: vi.fn() });
-  state.editor = { getModel: () => model, getOption: () => state.readOnly, onDidChangeModelContent: (fn: () => void) => { state.listeners.push(fn); return disposable(); }, onDidDispose: disposable, onKeyDown: disposable, addAction: vi.fn(disposable), focus: vi.fn(), setPosition: vi.fn(), revealLineInCenter: vi.fn() };
+  state.editor = { getModel: () => model, getOption: () => state.readOnly, onDidChangeModelContent: (fn: () => void) => { state.listeners.push(fn); return disposable(); }, onDidChangeCursorPosition: (fn: () => void) => { state.cursorListeners.push(fn); return { dispose() { state.cursorListeners = state.cursorListeners.filter(x => x !== fn); } }; }, onDidFocusEditorText: disposable, getPosition: () => state.position, hasTextFocus: () => true, trigger: vi.fn(), onDidDispose: disposable, onKeyDown: disposable, addAction: vi.fn(disposable), focus: vi.fn(), setPosition: vi.fn(), revealLineInCenter: vi.fn() };
   state.monaco = { editor: { EditorOption: { readOnly: 1 }, defineTheme: vi.fn(), setModelMarkers: (_: unknown, __: string, markers: any[]) => { state.markers = markers; state.markerListeners.forEach(fn => fn([uri])); }, getModelMarkers: () => state.markers, onDidChangeMarkers: (fn: (uris: unknown[]) => void) => { state.markerListeners.push(fn); return { dispose() { state.markerListeners = state.markerListeners.filter(x => x !== fn); } }; } }, languages: { registerCompletionItemProvider: disposable, registerInlineCompletionsProvider: disposable }, MarkerSeverity: { Error: 8, Warning: 4 } };
   return { default: (props: any) => {
     state.props = props; state.language = props.language; state.readOnly = props.options.readOnly;
@@ -19,7 +19,7 @@ vi.mock("@monaco-editor/react", async () => {
   } };
 });
 async function settle() { await act(async () => { await vi.runAllTimersAsync(); }); }
-beforeEach(() => { vi.useFakeTimers(); state.listeners = []; state.markers = []; state.markerListeners = []; state.text = "{}"; state.version = 1; });
+beforeEach(() => { vi.useFakeTimers(); state.position = null; state.cursorListeners = []; state.editor.trigger.mockClear(); state.listeners = []; state.markers = []; state.markerListeners = []; state.text = "{}"; state.version = 1; });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 describe("editor lifecycle", () => {
   it("validates false schemas and supports keyboard-accessible diagnostics", async () => {
@@ -64,5 +64,42 @@ describe("editor lifecycle", () => {
   it("reports skipped large-document validation", async () => {
     render(<SchemaEditor value={" ".repeat(512001)} language="json" schema={false} />); await settle();
     expect(screen.getByText("Validation paused: large document")).toBeTruthy();
+  });
+});
+
+
+describe("automatic YAML suggestions", () => {
+  const schema = { properties: { openapi: { const: "3.2.0" }, info: { type: "object" }, name: { default: "Example" }, status: { enum: ["active", "pending"] } } };
+  it("opens missing-key suggestions when entering a blank line", async () => {
+    state.position = { lineNumber: 2, column: 1 };
+    render(<SchemaEditor value="openapi: 3.2.0\n" language="yaml" schema={schema} />);
+    await settle();
+    expect(state.editor.trigger).toHaveBeenCalledWith("schema-editor", "editor.action.triggerSuggest", {});
+  });
+  it("switches ordinary values to ghost text", async () => {
+    state.position = { lineNumber: 1, column: 7 };
+    render(<SchemaEditor value="name: " language="yaml" schema={schema} />);
+    await settle();
+    expect(state.editor.trigger).toHaveBeenCalledWith("schema-editor", "hideSuggestWidget", {});
+    expect(state.editor.trigger).toHaveBeenCalledWith("schema-editor", "editor.action.inlineSuggest.trigger", {});
+  });
+  it("opens choices for an enum value", async () => {
+    state.position = { lineNumber: 1, column: 9 };
+    render(<SchemaEditor value="status: " language="yaml" schema={schema} />);
+    await settle(); expect(state.editor.trigger).toHaveBeenCalledWith("schema-editor", "editor.action.triggerSuggest", {});
+  });
+  it("does not open a popup when completion is disabled", async () => {
+    state.position = { lineNumber: 2, column: 1 };
+    render(<SchemaEditor value="openapi: 3.2.0\n" language="yaml" schema={schema} enableCompletion={false} />);
+    await settle(); expect(state.editor.trigger).not.toHaveBeenCalledWith("schema-editor", "editor.action.triggerSuggest", {});
+  });
+  it("cancels cursor listeners and pending triggers on unmount", async () => {
+    state.position = { lineNumber: 2, column: 1 };
+    const view = render(<SchemaEditor value="openapi: 3.2.0\n" language="yaml" schema={schema} />);
+    view.unmount(); await settle(); expect(state.cursorListeners).toHaveLength(0); expect(state.editor.trigger).not.toHaveBeenCalled();
+  });
+  it("isolates an explicitly dark editor from a light host", () => {
+    const view = render(<div data-theme="light"><SchemaEditor value="" language="yaml" theme="dark" /></div>);
+    expect((view.container.querySelector(".pde-container") as HTMLElement).style.getPropertyValue("--color-surface")).toBe("#1f2125");
   });
 });
