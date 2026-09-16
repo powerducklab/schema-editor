@@ -286,52 +286,7 @@ function installSmartEnterIndentation(
   let suggestTimer: ReturnType<typeof setTimeout> | undefined;
   const listener = editor.onKeyDown((event: Monaco.IKeyboardEvent) => {
     if (editor.getOption(monaco.editor.EditorOption.readOnly)) return;
-    /*
-     * Tab on an empty (whitespace-only) line must indent, never accept a
-     * suggest-widget item. The suggest popup is auto-opened after smart Enter,
-     * and without this guard Monaco may route Tab into the widget and insert
-     * the first completion (e.g. "delete") instead of indentation.
-     */
-    if (event.keyCode === monaco.KeyCode.Tab) {
-      const model = editor.getModel();
-      const position = editor.getPosition();
-      if (model && position) {
-        const lineContent = model.getLineContent(position.lineNumber);
-        if (lineContent.trim().length === 0) {
-          event.preventDefault();
-          event.stopPropagation();
-
-          /*
-           * Insert indentation directly via executeEdits. editor.action.tab
-           * is unreliable here because preventDefault() disrupts Monaco's
-           * internal command state. We use the model's tabSize (default 2)
-           * and insert spaces (YAML convention).
-           */
-          const tabSize = model.getOptions().tabSize ?? 2;
-          const insertText = " ".repeat(tabSize);
-          const lineMaxCol = model.getLineMaxColumn(position.lineNumber);
-
-          editor.executeEdits(SMART_ENTER_SOURCE, [
-            {
-              range: new monaco.Range(
-                position.lineNumber,
-                lineMaxCol,
-                position.lineNumber,
-                lineMaxCol,
-              ),
-              text: insertText,
-              forceMoveMarkers: true,
-            },
-          ]);
-
-          editor.setPosition(
-            new monaco.Position(position.lineNumber, lineMaxCol + tabSize),
-          );
-          return;
-        }
-      }
-    }
-
+    // Leave Tab and Shift+Tab to Monaco: accept visible suggestions or indent.
     if (event.keyCode !== monaco.KeyCode.Enter) {
       return;
     }
@@ -1266,10 +1221,8 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
         mode: "subwordSmart",
       },
       /*
-       * tabCompletion off means Tab always indents (or accepts inline ghost
-       * text when visible). Popup suggestions are accepted with Enter. This
-       * prevents Tab from accidentally inserting a property name when the
-       * user just wants to indent on an empty line.
+       * Monaco's native Tab binding accepts a selected popup item or ghost text.
+       * Keep implicit tab completion off so Tab still indents without suggestions.
        */
       tabCompletion: "off",
       acceptSuggestionOnEnter: enableCompletion ? "on" : "off",

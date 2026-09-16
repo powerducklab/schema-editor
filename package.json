@@ -1,6 +1,6 @@
 {
   "name": "@powerduck/schema-editor",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Schema-aware Monaco editor for JSON, YAML and JavaScript. Driven by any JSON Schema with ghost text, popup completion, enum dropdowns, example auto-fill, and schema diagnostics.",
   "keywords": [
     "monaco",

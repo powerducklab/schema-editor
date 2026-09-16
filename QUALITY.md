@@ -69,3 +69,9 @@ YAML suggestions already carry absolute indentation. Monaco's default suggestion
 Cursor colors also need direct scoped CSS: Monaco generates concrete global cursor rules, so overriding CSS variables alone is insufficient. Both cursor fill and border now follow each editor's text color, with the block-cursor text following its surface color.
 
 Verification: 269 tests passed. In real Monaco, accepting `responses` and then `"204"` produced indentation widths of 0, 2, 4, 6, 8, and 10 spaces. Simultaneous dark/light editors reported cursor colors of RGB (237, 240, 243) and RGB (38, 40, 43), respectively. The preview includes a Nested YAML fixture for reproducing this sequence.
+
+## Tab acceptance follow-up
+
+Removed the YAML keydown override that always inserted spaces on blank lines. Monaco now owns Tab and Shift+Tab: Tab accepts a focused popup suggestion or visible inline completion and indents normally when neither is available. Implicit tab completion remains disabled so hidden suggestions do not consume indentation.
+
+Verification: 271 tests passed, including Tab/Shift+Tab event ownership regressions. Real Monaco accepted `responses` with Tab, preserved the eight-space child indentation, and indented that line to ten spaces after dismissing the popup. Production build and ESM/CJS checks passed.
