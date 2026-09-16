@@ -22,6 +22,7 @@
   min-width: 0;
   color-scheme: light;
 }
+
 .pde-container[data-theme="dark"] {
   --pde-surface: var(--color-surface, #1f2125);
   --pde-surface-subtle: var(--color-surface-subtle, #25282d);
@@ -40,6 +41,7 @@
   --pde-accent-bg-active: var(--color-surface-selected, #343941);
   color-scheme: dark;
 }
+
 .pde-container {
   position: relative;
   display: flex;
@@ -48,15 +50,15 @@
   height: 100%;
   min-height: 200px;
   background: var(--pde-surface, #ffffff);
-  border: 1px solid var(--pde-border-default, #e0e4e8);
-  border-radius: var(--radius-md, 6px);
+  border: 1px solid transparent;
+  border-radius: 0;
   overflow: hidden;
   font-family: var(--font-family-ui, Inter, system-ui, sans-serif);
 }
 
 .pde-container:focus-within {
-  border-color: var(--pde-accent, #f28c28);
-  box-shadow: 0 0 0 2px var(--pde-focus-ring, rgba(242, 140, 40, 0.28));
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .pde-editor-wrapper {
@@ -81,10 +83,10 @@
   flex-shrink: 0;
   height: var(--footer-height, 24px);
   background: var(--pde-surface-subtle, #f8f9fa);
-  border-top: 1px solid var(--pde-border-subtle, #eceff1);
   display: flex;
   align-items: center;
   padding: 0 var(--space-2, 8px);
+  border-radius: 0;
   gap: var(--space-2, 8px);
   font-size: var(--font-size-xs, 12px);
 }
@@ -138,7 +140,7 @@
   justify-content: center;
   width: 18px;
   height: 18px;
-  border-radius: var(--radius-xs, 3px);
+  border-radius: 0;
   color: var(--pde-text-secondary, #6f747c);
   transition: transform var(--transition-fast, 140ms ease),
     background var(--transition-fast, 140ms ease),
@@ -265,19 +267,82 @@
   font-family: inherit;
   text-align: left;
 }
+
 .pde-container button:focus-visible {
   outline: 2px solid var(--pde-accent);
   outline-offset: -2px;
 }
-.pde-diagnostics-btn { min-height: 26px; font-family: inherit; }
-.pde-diagnostics-item { align-items: center; flex-wrap: wrap; padding: 8px 10px; cursor: default; }
-.pde-diagnostics-item-text { flex-basis: 120px; overflow-wrap: anywhere; }
-.pde-diagnostics-panel { box-shadow: none; scrollbar-width: thin; scrollbar-color: transparent transparent; }
-.pde-diagnostics-panel:hover, .pde-diagnostics-panel:focus-within { scrollbar-color: var(--pde-border-strong) transparent; }
-.pde-diagnostics-panel::-webkit-scrollbar { width: 6px; height: 6px; }
-.pde-diagnostics-panel::-webkit-scrollbar-thumb { background: transparent; border-radius: 6px; }
-.pde-diagnostics-panel:hover::-webkit-scrollbar-thumb, .pde-diagnostics-panel:focus-within::-webkit-scrollbar-thumb { background: var(--pde-border-strong); }
-.pde-loading { display: grid; place-items: center; height: 100%; font-size: 13px; color: var(--pde-text-secondary); }
-.pde-placeholder { max-width: calc(100% - 64px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (prefers-reduced-motion: reduce) { .pde-diagnostics-bar, .pde-diagnostics-chevron, .pde-diagnostics-btn, .pde-diagnostics-item { transition: none !important; } }
-@media (hover: none) { .pde-diagnostics-panel { scrollbar-color: var(--pde-border-strong) transparent; } }
+
+.pde-diagnostics-btn {
+  min-height: 26px;
+  font-family: inherit;
+}
+
+.pde-diagnostics-item {
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  cursor: default;
+}
+
+.pde-diagnostics-item-text {
+  flex-basis: 120px;
+  overflow-wrap: anywhere;
+}
+
+.pde-diagnostics-panel {
+  box-shadow: none;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.pde-diagnostics-panel:hover,
+.pde-diagnostics-panel:focus-within {
+  scrollbar-color: var(--pde-border-strong) transparent;
+}
+
+.pde-diagnostics-panel::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.pde-diagnostics-panel::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 6px;
+}
+
+.pde-diagnostics-panel:hover::-webkit-scrollbar-thumb,
+.pde-diagnostics-panel:focus-within::-webkit-scrollbar-thumb {
+  background: var(--pde-border-strong);
+}
+
+.pde-loading {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  font-size: 13px;
+  color: var(--pde-text-secondary);
+}
+
+.pde-placeholder {
+  max-width: calc(100% - 64px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .pde-diagnostics-bar,
+  .pde-diagnostics-chevron,
+  .pde-diagnostics-btn,
+  .pde-diagnostics-item {
+    transition: none !important;
+  }
+}
+
+@media (hover: none) {
+  .pde-diagnostics-panel {
+    scrollbar-color: var(--pde-border-strong) transparent;
+  }
+}
