@@ -61,3 +61,11 @@ Additional fixes: cursor-based blank-line indentation; prefix-only value replace
 Mixed light/dark editor verification exposed a second issue in Monaco's global syntax palette. Both themes now share explicit token IDs, with component-scoped syntax colors and suggestion foreground/background variables. Browser inspection confirmed separate white and dark surfaces and readable syntax in simultaneously mounted editors.
 
 Follow-up validation: 268 tests, real Monaco missing-key menus, nested-key exclusion, boolean-value acceptance, free-form ghost acceptance with Tab, and object completion entering child indentation. Final production build and ESM/CJS checks were rerun.
+
+## Nested indentation and cursor follow-up
+
+YAML suggestions already carry absolute indentation. Monaco's default suggestion acceptance adjusted that whitespace a second time. YAML completion items now use `KeepWhitespace` without enabling snippet interpretation. A provider-level regression test covers a six-space key insertion and an eight-space child line.
+
+Cursor colors also need direct scoped CSS: Monaco generates concrete global cursor rules, so overriding CSS variables alone is insufficient. Both cursor fill and border now follow each editor's text color, with the block-cursor text following its surface color.
+
+Verification: 269 tests passed. In real Monaco, accepting `responses` and then `"204"` produced indentation widths of 0, 2, 4, 6, 8, and 10 spaces. Simultaneous dark/light editors reported cursor colors of RGB (237, 240, 243) and RGB (38, 40, 43), respectively. The preview includes a Nested YAML fixture for reproducing this sequence.

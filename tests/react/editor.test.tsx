@@ -3,14 +3,16 @@ import React from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SchemaEditor } from "../../src/react/SchemaEditor";
-const state = vi.hoisted(() => ({ position: null as any, cursorListeners: [] as Array<() => void>, text: "{}", version: 1, language: "json", readOnly: false, listeners: [] as Array<() => void>, markerListeners: [] as Array<(uris: unknown[]) => void>, markers: [] as any[], props: null as any, editor: null as any, monaco: null as any }));
+const state = vi.hoisted(() => ({ popupProvider: null as any, position: null as any, cursorListeners: [] as Array<() => void>, text: "{}", version: 1, language: "json", readOnly: false, listeners: [] as Array<() => void>, markerListeners: [] as Array<(uris: unknown[]) => void>, markers: [] as any[], props: null as any, editor: null as any, monaco: null as any }));
 vi.mock("@monaco-editor/react", async () => {
   const React = await import("react");
-  const uri = { toString: () => "model" };
-  const model = { uri, getValue: () => state.text, getVersionId: () => state.version, getLanguageId: () => state.language, getValueLength: () => state.text.length, getLineCount: () => state.text.split("\n").length };
+  const uri = { toString: () => state.props?.path ?? "model" };
+  const model = { uri,
+    getOffsetAt: (position: { lineNumber: number; column: number }) => state.text.split("\n").slice(0, position.lineNumber - 1).reduce((total, line) => total + line.length + 1, 0) + position.column - 1,
+    getPositionAt: (offset: number) => { const lines = state.text.slice(0, offset).split("\n"); return { lineNumber: lines.length, column: lines[lines.length - 1]!.length + 1 }; }, getValue: () => state.text, getVersionId: () => state.version, getLanguageId: () => state.language, getValueLength: () => state.text.length, getLineCount: () => state.text.split("\n").length };
   const disposable = () => ({ dispose: vi.fn() });
   state.editor = { getModel: () => model, getOption: () => state.readOnly, onDidChangeModelContent: (fn: () => void) => { state.listeners.push(fn); return disposable(); }, onDidChangeCursorPosition: (fn: () => void) => { state.cursorListeners.push(fn); return { dispose() { state.cursorListeners = state.cursorListeners.filter(x => x !== fn); } }; }, onDidFocusEditorText: disposable, getPosition: () => state.position, hasTextFocus: () => true, trigger: vi.fn(), onDidDispose: disposable, onKeyDown: disposable, addAction: vi.fn(disposable), focus: vi.fn(), setPosition: vi.fn(), revealLineInCenter: vi.fn() };
-  state.monaco = { editor: { EditorOption: { readOnly: 1 }, defineTheme: vi.fn(), setModelMarkers: (_: unknown, __: string, markers: any[]) => { state.markers = markers; state.markerListeners.forEach(fn => fn([uri])); }, getModelMarkers: () => state.markers, onDidChangeMarkers: (fn: (uris: unknown[]) => void) => { state.markerListeners.push(fn); return { dispose() { state.markerListeners = state.markerListeners.filter(x => x !== fn); } }; } }, languages: { registerCompletionItemProvider: disposable, registerInlineCompletionsProvider: disposable }, MarkerSeverity: { Error: 8, Warning: 4 } };
+  state.monaco = { Range: class { constructor(public startLineNumber: number, public startColumn: number, public endLineNumber: number, public endColumn: number) {} }, editor: { EditorOption: { readOnly: 1 }, defineTheme: vi.fn(), setModelMarkers: (_: unknown, __: string, markers: any[]) => { state.markers = markers; state.markerListeners.forEach(fn => fn([uri])); }, getModelMarkers: () => state.markers, onDidChangeMarkers: (fn: (uris: unknown[]) => void) => { state.markerListeners.push(fn); return { dispose() { state.markerListeners = state.markerListeners.filter(x => x !== fn); } }; } }, languages: { CompletionItemKind: { Property: 9, Value: 12, Snippet: 27 }, CompletionItemInsertTextRule: { KeepWhitespace: 1 }, registerCompletionItemProvider: (_: string, provider: unknown) => { state.popupProvider = provider; return disposable(); }, registerInlineCompletionsProvider: disposable }, MarkerSeverity: { Error: 8, Warning: 4 } };
   return { default: (props: any) => {
     state.props = props; state.language = props.language; state.readOnly = props.options.readOnly;
     if (state.text !== props.value) { state.text = props.value; state.version++; }
@@ -101,5 +103,19 @@ describe("automatic YAML suggestions", () => {
   it("isolates an explicitly dark editor from a light host", () => {
     const view = render(<div data-theme="light"><SchemaEditor value="" language="yaml" theme="dark" /></div>);
     expect((view.container.querySelector(".pde-container") as HTMLElement).style.getPropertyValue("--color-surface")).toBe("#1f2125");
+  });
+});
+
+
+describe("nested YAML insertion", () => {
+  it("keeps absolute indentation when accepting a nested key", () => {
+    const schema = { properties: { paths: { type: "object", properties: { "/xxx": { type: "object", properties: { delete: { type: "object", properties: { responses: { type: "object" } } } } } } } } };
+    const text = "paths:\n  /xxx:\n    delete:\n      ";
+    render(<SchemaEditor value={text} language="yaml" schema={schema} />);
+    const result = state.popupProvider.provideCompletionItems(state.editor.getModel(), { lineNumber: 4, column: 7 });
+    const response = result.suggestions.find((item: any) => item.label === "responses");
+    expect(response.insertText).toBe("responses:\n        ");
+    expect(response.insertTextRules).toBe(1);
+    expect(response.range.startColumn).toBe(7);
   });
 });

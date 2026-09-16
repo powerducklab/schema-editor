@@ -155,6 +155,7 @@ function toMonacoCompletionItem(
   suggestion: CompletionSuggestion,
   monaco: typeof Monaco,
   range: Monaco.IRange,
+  keepWhitespace = false,
 ): Monaco.languages.CompletionItem {
   return {
     label: suggestion.label,
@@ -163,6 +164,8 @@ function toMonacoCompletionItem(
       ? { value: suggestion.documentation, isTrusted: false }
       : undefined,
     insertText: suggestion.insertText,
+    // YAML completions already contain absolute indentation for every new line.
+    insertTextRules: keepWhitespace ? monaco.languages.CompletionItemInsertTextRule.KeepWhitespace : undefined,
     filterText: suggestion.filterText,
     sortText: suggestion.sortText,
     range,
@@ -994,7 +997,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
 
           return {
             suggestions: suggestions.map((suggestion) =>
-              toMonacoCompletionItem(suggestion, monaco, range),
+              toMonacoCompletionItem(suggestion, monaco, range, currentLanguage === "yaml"),
             ),
           };
         },

@@ -24,6 +24,8 @@ export function defineEditorThemes(monaco: typeof Monaco): void {
       ], colors: {
         "editor.background": surface, "editor.foreground": foreground,
         "editorGutter.background": surface,
+        "editorCursor.foreground": foreground,
+        "editorCursor.background": surface,
         "editorWidget.background": surface, "editorWidget.border": border,
         "editorSuggestWidget.background": surface, "editorSuggestWidget.border": border,
         "editorSuggestWidget.foreground": foreground,

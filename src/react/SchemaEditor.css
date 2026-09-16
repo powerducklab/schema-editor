@@ -357,3 +357,10 @@
 .pde-container .monaco-editor .mtk7 { color: var(--pde-syntax-key) !important; }
 .pde-container .monaco-editor .mtk8 { color: var(--pde-danger) !important; }
 .pde-container .monaco-editor [class*="bracket-highlighting-"] { color: var(--pde-syntax-keyword) !important; }
+
+/* Monaco emits concrete global cursor rules, so variables alone cannot isolate them. */
+.pde-container .monaco-editor .cursors-layer .cursor {
+  background-color: var(--pde-text-primary) !important;
+  border-color: var(--pde-text-primary) !important;
+  color: var(--pde-surface) !important;
+}
