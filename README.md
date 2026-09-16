@@ -5,6 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@powerduck/schema-editor.svg)](https://www.npmjs.com/package/@powerduck/schema-editor)
 [![tests](https://img.shields.io/badge/tests-205%20passing-brightgreen)](https://github.com/powerducklab/schema-editor)
 [![license](https://img.shields.io/npm/l/@powerduck/schema-editor.svg)](https://github.com/powerducklab/schema-editor/blob/main/LICENSE)
+[![website](https://img.shields.io/badge/website-powerduck.com-blue)](https://www.powerduck.com/)
 
 ## Features
 
@@ -334,6 +335,14 @@ npm run verify
 | `npm run test:watch` | `vitest --watch` |
 | `npm run build` | `tsup` (ESM + CJS + declarations) |
 | `npm run verify` | Verify ESM/CJS outputs load correctly |
+
+## Links
+
+- [Official Website](https://www.powerduck.com/opensource/schema-editor.html)
+- [Documentation](https://www.powerduck.com/docs/schema-editor/introduction/)
+- [Live Demo](https://www.powerduck.com/demo/schema-editor)
+- [GitHub](https://github.com/powerducklab/schema-editor)
+- [npm](https://www.npmjs.com/package/@powerduck/schema-editor)
 
 ## License
 
