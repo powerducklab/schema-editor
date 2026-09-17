@@ -106,6 +106,21 @@ describe("automatic YAML suggestions", () => {
     view.rerender(<SchemaEditor value="" language="yaml" theme="light" />);
     expect(state.props.theme).toBe("vs");
   });
+  it("keeps overflow widgets outside the editor panel with matching theme and cleans them up", () => {
+    const beforeMount = vi.fn();
+    const view = render(<SchemaEditor value="" language="javascript" theme="dark" beforeMount={beforeMount} />);
+    const host = state.props.options.overflowWidgetsDomNode;
+    expect(beforeMount).toHaveBeenCalledWith(state.monaco);
+    expect(host.parentElement).toBe(document.body);
+    expect(host.classList.contains("monaco-editor")).toBe(true);
+    expect(host.classList.contains("vs-dark")).toBe(true);
+    view.rerender(<SchemaEditor value="" language="javascript" theme="light" beforeMount={beforeMount} />);
+    expect(state.props.options.overflowWidgetsDomNode).toBe(host);
+    expect(host.classList.contains("vs")).toBe(true);
+    expect(host.classList.contains("vs-dark")).toBe(false);
+    view.unmount();
+    expect(host.isConnected).toBe(false);
+  });
 });
 
 

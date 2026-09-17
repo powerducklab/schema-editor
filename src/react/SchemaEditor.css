@@ -346,3 +346,4 @@
     scrollbar-color: var(--pde-border-strong) transparent;
   }
 }
+.pde-overflow-widgets { position: relative; z-index: 1500; }

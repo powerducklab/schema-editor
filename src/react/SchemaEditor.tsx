@@ -113,6 +113,9 @@ export interface SchemaEditorProps {
   /** Ref to the underlying Monaco editor instance. */
   editorRef?: MutableRefObject<Monaco.editor.IStandaloneCodeEditor | null>;
 
+  /** Configure language services before the editor is created. */
+  beforeMount?: BeforeMount;
+
   /** Extra Monaco editor options. */
   options?: Monaco.editor.IStandaloneEditorConstructionOptions;
 
@@ -375,10 +378,20 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
     onDiagnostics,
     editorRef: externalEditorRef,
     options: extraOptions,
+    beforeMount: hostBeforeMount,
     style,
     className,
   } = props;
 
+  // Put fixed widgets outside transformed/contained host panels. Their viewport
+  // coordinates must use the same containing block as Monaco's measurement.
+  const widgetHost = useMemo(() => typeof document === "undefined" ? undefined : document.createElement("div"), []);
+  useEffect(() => {
+    if (!widgetHost) return;
+    widgetHost.className = `pde-overflow-widgets monaco-editor ${theme === "dark" ? "vs-dark" : "vs"}`;
+    document.body.appendChild(widgetHost);
+    return () => widgetHost.remove();
+  }, [widgetHost, theme]);
   const internalEditorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
   const modelUriRef = useRef<Monaco.Uri | null>(null);
@@ -957,7 +970,8 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
 
   const beforeMount: BeforeMount = useCallback((monaco: typeof Monaco) => {
     monacoRef.current = monaco;
-  }, []);
+    hostBeforeMount?.(monaco);
+  }, [hostBeforeMount]);
 
   const onMount: OnMount = useCallback(
     (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
@@ -1179,6 +1193,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
        * with overflow:hidden (for example, the editor wrapper or a grid cell).
        */
       fixedOverflowWidgets: true,
+      overflowWidgetsDomNode: widgetHost,
       renderWhitespace: "selection",
       guides: {
         indentation: true,
