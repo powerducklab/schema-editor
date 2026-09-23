@@ -209,8 +209,7 @@ const formatted = formatYaml(yamlText);
 | `getYamlCompletions(context, schema)` | Get popup completion suggestions. |
 | `getYamlInlineSuggestion(context, schema)` | Get the best inline ghost suggestion. |
 | `formatYaml(text)` | Tolerant YAML formatter (normalizes indentation + colon spacing). |
-| `findYamlColonSpacingIssues(text)` | Find colon spacing issues in YAML. |
-| `rangeOfPath(index, path)` | Map a JSON path to a document line range (for tree navigation). |
+| `yamlRangeOfPath(index, path)` | Map a JSON path to a document line range (for tree navigation). |
 
 #### JavaScript
 
@@ -295,10 +294,10 @@ src/
 The library exposes primitives for building a schema tree navigator that jumps the editor to a specific line:
 
 ```ts
-import { buildYamlIndex, rangeOfPath } from "@powerduck/schema-editor";
+import { buildYamlIndex, yamlRangeOfPath } from "@powerduck/schema-editor";
 
 const index = buildYamlIndex(yamlText);
-const range = rangeOfPath(index, ["paths", "/users", "get", "responses", "200"]);
+const range = yamlRangeOfPath(index, ["paths", "/users", "get", "responses", "200"]);
 
 // Jump editor to line
 editor.setPosition({ lineNumber: range.startLine, column: 1 });
@@ -340,7 +339,7 @@ npm run verify
 
 - [Official Website](https://www.powerduck.com/opensource/schema-editor.html)
 - [Documentation](https://www.powerduck.com/docs/schema-editor/introduction/)
-- [Live Demo](https://www.powerduck.com/demo/schema-editor)
+- [Live Demo](https://www.powerduck.com/demo/)
 - [GitHub](https://github.com/powerducklab/schema-editor)
 - [npm](https://www.npmjs.com/package/@powerduck/schema-editor)
 
