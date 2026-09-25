@@ -986,10 +986,26 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
       }
 
       /*
-       * Force a layout pass after the browser has computed flex/grid sizes.
-       * Without this, Monaco can initialise at 0px height when the parent
-       * container gets its height from a flex layout that has not settled yet.
+       * Force layout passes once flex/grid sizes settle. Monaco can initialise
+       * at a collapsed height when it mounts before the parent flex chain
+       * resolves; the automaticLayout ResizeObserver does not always catch that
+       * first hidden-to-visible transition.
        */
+      const relayout = (): void => {
+        const container = editor.getContainerDomNode();
+        if (!container) return;
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        if (width > 0 && height > 0) editor.layout({ width, height });
+      };
+      const rafId = requestAnimationFrame(() => {
+        relayout();
+        requestAnimationFrame(relayout);
+      });
+      const layoutTimers: Array<ReturnType<typeof setTimeout>> = [
+        setTimeout(relayout, 120),
+        setTimeout(relayout, 320),
+      ];
       /*
        * Dispose any previously registered providers before registering new
        * ones. This guards against duplicate registration when onMount is
@@ -1027,6 +1043,8 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
         }
 
         contentListener.dispose();
+        cancelAnimationFrame(rafId);
+        layoutTimers.forEach((timer) => clearTimeout(timer));
         ++diagnosticsVersionRef.current;
         setEditorRef(null);
       });
