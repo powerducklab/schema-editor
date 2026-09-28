@@ -12,7 +12,7 @@ vi.mock("@monaco-editor/react", async () => {
     getPositionAt: (offset: number) => { const lines = state.text.slice(0, offset).split("\n"); return { lineNumber: lines.length, column: lines[lines.length - 1]!.length + 1 }; }, getValue: () => state.text, getVersionId: () => state.version, getLanguageId: () => state.language, getValueLength: () => state.text.length, getLineCount: () => state.text.split("\n").length };
   const disposable = () => ({ dispose: vi.fn() });
   const containerNode = document.createElement("div");
-  state.editor = { getModel: () => model, getOption: () => state.readOnly, onDidChangeModelContent: (fn: () => void) => { state.listeners.push(fn); return disposable(); }, onDidChangeCursorPosition: (fn: () => void) => { state.cursorListeners.push(fn); return { dispose() { state.cursorListeners = state.cursorListeners.filter(x => x !== fn); } }; }, onDidFocusEditorText: disposable, getPosition: () => state.position, hasTextFocus: () => true, trigger: vi.fn(), onDidDispose: disposable, onKeyDown: (fn: (event: any) => void) => { state.keyListeners.push(fn); return { dispose() { state.keyListeners = state.keyListeners.filter(x => x !== fn); } }; }, addAction: vi.fn(disposable), focus: vi.fn(), setPosition: vi.fn(), revealLineInCenter: vi.fn(), getContainerDomNode: () => containerNode, layout: vi.fn() };
+  state.editor = { getModel: () => model, getOption: () => state.readOnly, onDidChangeModelContent: (fn: () => void) => { state.listeners.push(fn); return disposable(); }, onDidChangeCursorPosition: (fn: () => void) => { state.cursorListeners.push(fn); return { dispose() { state.cursorListeners = state.cursorListeners.filter(x => x !== fn); } }; }, onDidFocusEditorText: disposable, getPosition: () => state.position, hasTextFocus: () => true, trigger: vi.fn(), getAction: vi.fn(() => ({ run: () => Promise.resolve() })), onDidDispose: disposable, onKeyDown: (fn: (event: any) => void) => { state.keyListeners.push(fn); return { dispose() { state.keyListeners = state.keyListeners.filter(x => x !== fn); } }; }, addAction: vi.fn(disposable), focus: vi.fn(), setPosition: vi.fn(), revealLineInCenter: vi.fn(), getContainerDomNode: () => containerNode, layout: vi.fn() };
   state.monaco = { KeyCode: { Tab: 2, Enter: 3 }, Range: class { constructor(public startLineNumber: number, public startColumn: number, public endLineNumber: number, public endColumn: number) {} }, editor: { EditorOption: { readOnly: 1 }, defineTheme: vi.fn(), setModelMarkers: (_: unknown, __: string, markers: any[]) => { state.markers = markers; state.markerListeners.forEach(fn => fn([uri])); }, getModelMarkers: () => state.markers, onDidChangeMarkers: (fn: (uris: unknown[]) => void) => { state.markerListeners.push(fn); return { dispose() { state.markerListeners = state.markerListeners.filter(x => x !== fn); } }; } }, languages: { CompletionItemKind: { Property: 9, Value: 12, Snippet: 27 }, CompletionItemInsertTextRule: { KeepWhitespace: 1 }, registerCompletionItemProvider: (_: string, provider: unknown) => { state.popupProvider = provider; return disposable(); }, registerInlineCompletionsProvider: disposable }, MarkerSeverity: { Error: 8, Warning: 4 } };
   return { default: (props: any) => {
     state.props = props; state.language = props.language; state.readOnly = props.options.readOnly;
@@ -84,7 +84,7 @@ describe("automatic YAML suggestions", () => {
     render(<SchemaEditor value="name: " language="yaml" schema={schema} />);
     await settle();
     expect(state.editor.trigger).toHaveBeenCalledWith("schema-editor", "hideSuggestWidget", {});
-    expect(state.editor.trigger).toHaveBeenCalledWith("schema-editor", "editor.action.inlineSuggest.trigger", {});
+    expect(state.editor.getAction).toHaveBeenCalledWith("editor.action.inlineSuggest.trigger");
   });
   it("opens choices for an enum value", async () => {
     state.position = { lineNumber: 1, column: 9 };
@@ -147,5 +147,21 @@ describe("YAML Tab ownership", () => {
     act(() => state.keyListeners.forEach(listener => listener(event)));
     expect(event.preventDefault).not.toHaveBeenCalled();
     expect(event.stopPropagation).not.toHaveBeenCalled();
+  });
+});
+
+describe("inline action cancellation", () => {
+  it("consumes canceled actions on view changes without swallowing genuine errors", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    state.position = { lineNumber: 1, column: 7 };
+    const error = new Error("Canceled"); error.name = "Canceled";
+    state.editor.getAction.mockReturnValue({ run: () => Promise.reject(error) });
+    const view = render(<SchemaEditor value="name: " language="yaml" schema={{ properties: { name: { default: "Example" } } }} />);
+    await settle(); expect(log).not.toHaveBeenCalled();
+    state.editor.getAction.mockReturnValue({ run: () => Promise.reject(new Error("provider broken")) });
+    act(() => state.cursorListeners.forEach(fn => fn()));
+    await settle(); expect(log).toHaveBeenCalledWith("[schema-editor] Inline completion failed", expect.any(Error));
+    view.unmount(); log.mockRestore();
+    state.editor.getAction.mockReturnValue({ run: () => Promise.resolve() });
   });
 });

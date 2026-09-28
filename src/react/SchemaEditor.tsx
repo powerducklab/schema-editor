@@ -998,27 +998,15 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
         const height = container.clientHeight;
         if (width > 0 && height > 0) editor.layout({ width, height });
       };
+      let followupRaf: number | undefined;
       const rafId = requestAnimationFrame(() => {
         relayout();
-        requestAnimationFrame(relayout);
+        followupRaf = requestAnimationFrame(relayout);
       });
       const layoutTimers: Array<ReturnType<typeof setTimeout>> = [
         setTimeout(relayout, 120),
         setTimeout(relayout, 320),
       ];
-      /*
-       * Dispose any previously registered providers before registering new
-       * ones. This guards against duplicate registration when onMount is
-       * invoked more than once (for example, during React StrictMode or
-       * hot-module reloading).
-       */
-      completionProviderRef.current?.dispose();
-      inlineProviderRef.current?.dispose();
-
-      /* Register popup completion and native inline (ghost text) providers. */
-      completionProviderRef.current = registerCompletionProvider(monaco) ?? null;
-      inlineProviderRef.current = registerInlineCompletionsProvider(monaco) ?? null;
-
       const contentListener = editor.onDidChangeModelContent(() => scheduleRef.current());
 
       /* Initial diagnostics. */
@@ -1044,6 +1032,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
 
         contentListener.dispose();
         cancelAnimationFrame(rafId);
+        if (followupRaf !== undefined) cancelAnimationFrame(followupRaf);
         layoutTimers.forEach((timer) => clearTimeout(timer));
         ++diagnosticsVersionRef.current;
         setEditorRef(null);
@@ -1079,7 +1068,15 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
             editor.trigger("schema-editor", "editor.action.triggerSuggest", {});
           } else {
             editor.trigger("schema-editor", "hideSuggestWidget", {});
-            if (enableInlineSuggestions) editor.trigger("schema-editor", "editor.action.inlineSuggest.trigger", {});
+            if (enableInlineSuggestions) {
+              // trigger() forwards rejected action promises to Monaco's global
+              // error handler. Own this promise: cancellation is normal when
+              // typing again or disposing the model during a view switch.
+              void editor.getAction("editor.action.inlineSuggest.trigger")?.run().catch((error: unknown) => {
+                if (error instanceof Error && error.name === "Canceled" && error.message === "Canceled") return;
+                console.error("[schema-editor] Inline completion failed", error);
+              });
+            }
           }
         } else if (currentLanguage === "json" && enableCompletion && !model.getLineContent(position.lineNumber).trim()) {
           editor.trigger("schema-editor", "editor.action.triggerSuggest", {});
@@ -1095,21 +1092,28 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
     const editor = internalEditorRef.current;
     const monaco = monacoRef.current;
 
-    if (!editor || !monaco) {
+    if (!editor || !monaco || !editorReady) {
       return;
     }
 
     completionProviderRef.current?.dispose();
     inlineProviderRef.current?.dispose();
 
-    completionProviderRef.current = registerCompletionProvider(monaco) ?? null;
-    inlineProviderRef.current = registerInlineCompletionsProvider(monaco) ?? null;
+    const completion = registerCompletionProvider(monaco) ?? null;
+    const inline = registerInlineCompletionsProvider(monaco) ?? null;
+    completionProviderRef.current = completion;
+    inlineProviderRef.current = inline;
 
     return () => {
-      completionProviderRef.current?.dispose();
-      completionProviderRef.current = null;
-      inlineProviderRef.current?.dispose();
-      inlineProviderRef.current = null;
+      // Only dispose registrations owned by this effect, never a newer mount.
+      if (completionProviderRef.current === completion) {
+        completion?.dispose();
+        completionProviderRef.current = null;
+      }
+      if (inlineProviderRef.current === inline) {
+        inline?.dispose();
+        inlineProviderRef.current = null;
+      }
     };
   }, [editorReady, language, registerCompletionProvider, registerInlineCompletionsProvider]);
 

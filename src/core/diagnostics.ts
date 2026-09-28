@@ -37,6 +37,8 @@ function createAjv(legacy: boolean) {
     strict: false,
     allowUnionTypes: true,
     validateFormats: true,
+    // OAS declares this annotation format; AJV does not ship a validator.
+    formats: { "media-range": true as const },
     loadSchema: undefined,
   };
 

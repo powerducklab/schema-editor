@@ -66,9 +66,10 @@ function buildReferenceIndex(root: JsonSchemaObject): ReferenceIndex {
       currentBase = resolveUri(baseId, value.$id);
       index.byId.set(currentBase, value as JsonSchemaObject);
     }
-    if (typeof value.$anchor === "string" && value.$anchor) {
-      index.byAnchor.set(`${currentBase}#${value.$anchor}`, value as JsonSchemaObject);
-      index.byAnchor.set(`#${value.$anchor}`, value as JsonSchemaObject);
+    const anchor = value.$anchor ?? value.$dynamicAnchor;
+    if (typeof anchor === "string" && anchor) {
+      index.byAnchor.set(`${currentBase}#${anchor}`, value as JsonSchemaObject);
+      index.byAnchor.set(`#${anchor}`, value as JsonSchemaObject);
     }
     for (const child of Object.values(value)) {
       if (Array.isArray(child)) {
@@ -263,15 +264,16 @@ export function resolveSchemas(
 
   let effective: JsonSchemaObject = schema;
 
-  if (typeof schema.$ref === "string") {
-    const target = resolveReference(root, schema.$ref);
+  const reference = schema.$ref ?? schema.$dynamicRef;
+  if (typeof reference === "string") {
+    const target = resolveReference(root, reference);
 
     if (target === false) return [];
     if (target === undefined) {
-      const { $ref: _ignored, ...rest } = schema;
+      const { $ref: _ignored, $dynamicRef: _dynamic, ...rest } = schema;
       effective = rest;
     } else {
-      const { $ref: _ignored, ...siblings } = schema;
+      const { $ref: _ignored, $dynamicRef: _dynamic, ...siblings } = schema;
       const resolvedTargets = resolveSchemas(target, root, depth + 1, nextSeen, budget);
 
       if (resolvedTargets.length === 0) {
