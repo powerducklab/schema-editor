@@ -343,7 +343,13 @@ export function generateSample(
     value = undefined;
   }
 
-  if (value === undefined) {
+  // An empty randomly generated object is unhelpful as an editor preview when
+  // the schema declares fields. Keep explicit defaults/examples (handled above)
+  // and maxProperties: 0 intact; optional fields remain optional in the schema.
+  const omittedAllProperties = value !== null && typeof value === "object" &&
+    !Array.isArray(value) && Object.keys(value).length === 0 &&
+    Object.keys(schema.properties ?? {}).length > 0 && schema.maxProperties !== 0;
+  if (value === undefined || omittedAllProperties) {
     value = generateFallbackSample(schema, root, 0, maxDepth);
   }
 

@@ -6,6 +6,17 @@ import type { JsonSchemaObject } from "../../src/types";
 
 describe("sample", () => {
   describe("generateSample", () => {
+    it("shows optional request fields instead of an empty ghost preview", () => {
+      const schema: JsonSchemaObject = { type: "object", properties: { password: { type: "string" } } };
+      expect(generateSample(schema, schema)).toEqual({ password: expect.any(String) });
+      expect(schema.required).toBeUndefined();
+    });
+    it("preserves explicit empty examples and objects constrained to be empty", () => {
+      for (const extra of [{ examples: [{}] }, { default: {} }, { maxProperties: 0 }]) {
+        const schema: JsonSchemaObject = { type: "object", properties: { password: { type: "string" } }, ...extra };
+        expect(generateSample(schema, schema)).toEqual({});
+      }
+    });
     it("returns const value directly", () => {
       const schema: JsonSchemaObject = { const: "hello" };
       expect(generateSample(schema, schema)).toBe("hello");
