@@ -366,3 +366,7 @@ Run `npm run preview:dev` for the local Monaco preview, `npm test` for regressio
 Moving the caret to a blank YAML line opens missing-key suggestions for its indentation level. Keys already present in that mapping are excluded. Typing a matching key prefix previews the completion; accepting an object key enters its child indentation. Enum and boolean values use a popup. Ordinary values use schema-driven ghost text, accepted with Tab. Disabling inline suggestions keeps value completions available in the popup.
 
 Value completion replaces only the typed value prefix. It preserves the key, supplies a missing separator space, and quotes string values that YAML would otherwise interpret as booleans, numbers, nulls, or timestamps. An accepted value does not immediately reopen its popup. Automatic triggers honor read-only mode and completion settings and are disposed on language changes or unmount.
+
+## 0.2.14 — Portable builds
+
+The build no longer creates React/React DOM symlinks pointing into a hard-coded developer workspace. Install declared dependencies normally; building this package does not modify another project.

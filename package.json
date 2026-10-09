@@ -1,6 +1,6 @@
 {
   "name": "@powerduck/schema-editor",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "description": "Schema-aware Monaco editor for JSON, YAML and JavaScript. Driven by any JSON Schema with ghost text, popup completion, enum dropdowns, example auto-fill, and schema diagnostics.",
   "keywords": [
     "monaco",
@@ -62,7 +62,6 @@
   },
   "scripts": {
     "build": "tsc --noEmit && tsup",
-    "postbuild": "ln -sf /Users/electron/powerduck-react/node_modules/react node_modules/react && ln -sf /Users/electron/powerduck-react/node_modules/react-dom node_modules/react-dom",
     "dev": "tsup --watch",
     "clean": "rm -rf dist coverage",
     "typecheck": "tsc --noEmit",
