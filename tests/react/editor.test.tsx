@@ -206,3 +206,29 @@ describe("ghost preference", () => {
     expect(state.props.path).toBe(path);
   });
 });
+
+
+describe("automatic suggestion preference", () => {
+  it("cancels pending popup work, hides existing suggestions and retains manual completion", async () => {
+    state.position = { lineNumber: 2, column: 1 };
+    const props = { value: "openapi: 3.2.0\n", language: "yaml" as const, schema: { properties: { info: { type: "object" } } } };
+    const view = render(<SchemaEditor {...props} />);
+    view.rerender(<SchemaEditor {...props} automaticSuggestions={false} />);
+    state.editor.trigger.mockClear();
+    act(() => state.cursorListeners.forEach(fn => fn()));
+    await settle();
+    expect(state.editor.trigger).not.toHaveBeenCalledWith("schema-editor", "editor.action.triggerSuggest", {});
+    expect(state.props.options.quickSuggestions.other).toBe(false);
+    expect(state.props.options.quickSuggestions.strings).toBe(false);
+    expect(state.props.options.suggestOnTriggerCharacters).toBe(false);
+    expect(state.props.options.inlineSuggest.enabled).toBe(false);
+    const manual = state.popupProvider.provideCompletionItems(state.editor.getModel(), state.position);
+    expect(manual.suggestions.some((item: any) => item.label === "info")).toBe(true);
+    view.rerender(<SchemaEditor {...props} automaticSuggestions />);
+    await settle();
+    expect(state.editor.trigger).toHaveBeenCalledWith("schema-editor", "editor.action.triggerSuggest", {});
+    view.rerender(<SchemaEditor {...props} automaticSuggestions={false} />);
+    expect(state.editor.trigger).toHaveBeenCalledWith("schema-editor", "hideSuggestWidget", {});
+    expect(state.editor.trigger).toHaveBeenCalledWith("schema-editor", "editor.action.inlineSuggest.hide", {});
+  });
+});

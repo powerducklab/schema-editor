@@ -101,6 +101,9 @@ export interface SchemaEditorProps {
   /** Enable inline ghost text suggestions. Defaults to true. */
   enableInlineSuggestions?: boolean;
 
+  /** Automatically show suggestions while typing. False retains manual popup completion. */
+  automaticSuggestions?: boolean;
+
   /** Enable popup completion. Defaults to true. */
   enableCompletion?: boolean;
 
@@ -376,6 +379,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
     showDiagnostics = true,
     enableInlineSuggestions = true,
     enableCompletion = true,
+    automaticSuggestions = true,
     diagnosticsDebounceMs = DEFAULT_DIAGNOSTICS_DEBOUNCE,
     diagnosticsMode = "schema",
     onDiagnostics,
@@ -1068,6 +1072,11 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
     const editor = internalEditorRef.current;
     const monaco = monacoRef.current;
     if (!editor || !monaco || !editorReady) return;
+    if (!automaticSuggestions) {
+      editor.trigger("schema-editor", "hideSuggestWidget", {});
+      editor.trigger("schema-editor", "editor.action.inlineSuggest.hide", {});
+      return;
+    }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const request = () => {
       if (timer) clearTimeout(timer);
@@ -1100,7 +1109,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
     const listeners = [editor.onDidChangeCursorPosition(request), editor.onDidFocusEditorText(request), editor.onDidChangeModelContent(request)];
     request();
     return () => { if (timer) clearTimeout(timer); listeners.forEach(listener => listener.dispose()); };
-  }, [editorReady, language, enableCompletion, enableInlineSuggestions, schema]);
+  }, [editorReady, language, enableCompletion, enableInlineSuggestions, automaticSuggestions, schema]);
 
   useEffect(() => {
     const editor = internalEditorRef.current;
@@ -1235,12 +1244,12 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
         indentation: true,
       },
       /* Native inline ghost text + popup completion. */
-      suggestOnTriggerCharacters: enableCompletion,
-      suggest: { preview: enableInlineSuggestions, previewMode: "prefix" },
+      suggestOnTriggerCharacters: enableCompletion && automaticSuggestions,
+      suggest: { preview: enableInlineSuggestions && automaticSuggestions, previewMode: "prefix" },
       quickSuggestions: {
-        other: enableCompletion,
+        other: enableCompletion && automaticSuggestions,
         comments: false,
-        strings: enableCompletion,
+        strings: enableCompletion && automaticSuggestions,
       },
       /*
        * Disable word-based suggestions. Monaco's default word completer scans
@@ -1252,7 +1261,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
        */
       wordBasedSuggestions: "off",
       inlineSuggest: {
-        enabled: enableInlineSuggestions,
+        enabled: enableInlineSuggestions && automaticSuggestions,
         mode: "subwordSmart",
       },
       /*
@@ -1264,7 +1273,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
       ...extraOptions,
       readOnly: readOnly || extraOptions?.readOnly,
     }),
-    [readOnly, extraOptions, enableCompletion, enableInlineSuggestions],
+    [readOnly, extraOptions, enableCompletion, enableInlineSuggestions, automaticSuggestions],
   );
 
   const monacoTheme = theme === "dark" ? "vs-dark" : "vs";
