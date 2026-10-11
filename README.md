@@ -153,10 +153,11 @@ const formatted = formatYaml(yamlText);
 | `theme` | `"light" \| "dark"` | `"light"` | Visual theme. |
 | `readOnly` | `boolean` | `false` | Read-only mode. |
 | `placeholder` | `string` | — | Placeholder text when empty. |
-| `showDiagnostics` | `boolean` | `true` | Show the diagnostics status bar with Locate/Fix actions. |
+| `showDiagnostics` | `boolean` | `true` | Enable diagnostics and their status bar; skipped in read-only mode. |
 | `enableInlineSuggestions` | `boolean` | `true` | Enable inline ghost text. |
 | `enableCompletion` | `boolean` | `true` | Enable popup completion. |
-| `diagnosticsDebounceMs` | `number` | `250` | Diagnostics debounce delay. |
+| `diagnosticsDebounceMs` | `number` | `750` | Diagnostics debounce delay. |
+| `diagnosticsMode` | `"syntax" \| "schema"` | `"schema"` | Syntax-only checks or full schema validation. |
 | `onDiagnostics` | `(diagnostics: SchemaDiagnostic[]) => void` | — | Diagnostics change callback. |
 | `editorRef` | `MutableRefObject<IStandaloneCodeEditor \| null>` | — | Ref to the Monaco editor instance (for tree navigation, etc.). |
 | `extraOptions` | `IStandaloneEditorConstructionOptions` | — | Extra Monaco editor options (merged with defaults). |

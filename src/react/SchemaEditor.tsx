@@ -11,7 +11,7 @@
  *
  * Performance:
  *   - Completion providers are registered once per language.
- *   - Diagnostics run on a debounced timer (250ms).
+ *   - Diagnostics run on a debounced timer (750ms).
  *   - Schema resolution and sample generation are cached at the core layer.
  *   - Large documents (>500KB) skip diagnostics to keep typing responsive.
  */
@@ -95,7 +95,7 @@ export interface SchemaEditorProps {
   readOnly?: boolean;
   placeholder?: string;
 
-  /** Show the diagnostics status bar at the bottom. Defaults to true. */
+  /** Enable diagnostics and their status bar. Disabled in read-only mode. Defaults to true. */
   showDiagnostics?: boolean;
 
   /** Enable inline ghost text suggestions. Defaults to true. */
@@ -104,8 +104,10 @@ export interface SchemaEditorProps {
   /** Enable popup completion. Defaults to true. */
   enableCompletion?: boolean;
 
-  /** Debounce delay for diagnostics in milliseconds. Defaults to 250. */
+  /** Debounce delay for diagnostics in milliseconds. Defaults to 750. */
   diagnosticsDebounceMs?: number;
+  /** Skip JSON Schema validation while retaining syntax diagnostics. */
+  diagnosticsMode?: "syntax" | "schema";
 
   /** Called whenever diagnostics change. */
   onDiagnostics?: (diagnostics: Diagnostic[]) => void;
@@ -128,7 +130,7 @@ export interface SchemaEditorProps {
 /* -------------------------------------------------------------------------- */
 
 const LARGE_DOCUMENT_THRESHOLD = 500 * 1024;
-const DEFAULT_DIAGNOSTICS_DEBOUNCE = 250;
+const DEFAULT_DIAGNOSTICS_DEBOUNCE = 750;
 
 const MONACO_LANGUAGE_MAP: Record<EditorLanguage, string> = {
   json: "json",
@@ -375,6 +377,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
     enableInlineSuggestions = true,
     enableCompletion = true,
     diagnosticsDebounceMs = DEFAULT_DIAGNOSTICS_DEBOUNCE,
+    diagnosticsMode = "schema",
     onDiagnostics,
     editorRef: externalEditorRef,
     options: extraOptions,
@@ -456,6 +459,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
   /* Diagnostics                                                              */
   /* ------------------------------------------------------------------------ */
 
+  const disabledDiagnosticsModel = useRef<Monaco.editor.ITextModel | null>(null);
   const runDiagnostics = useCallback(() => {
     const editor = internalEditorRef.current;
     const monaco = monacoRef.current;
@@ -470,6 +474,15 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
       return;
     }
 
+    if (!showDiagnostics || readOnly) {
+      if (disabledDiagnosticsModel.current === model) return;
+      disabledDiagnosticsModel.current = model;
+      monaco.editor.setModelMarkers(model, "schema-editor", []);
+      diagnosticSnapshot.current = {version: model.getVersionId(), diagnostics: []};
+      onDiagnosticsRef.current?.([]);
+      return;
+    }
+    disabledDiagnosticsModel.current = null;
     const version = ++diagnosticsVersionRef.current;
     const modelVersion = model.getVersionId();
     const text = model.getValue();
@@ -601,7 +614,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
       let schemaDiagnostics: ReturnType<typeof validateParsedDocument> = [];
 
       try {
-        schemaDiagnostics = validateParsedDocument(document, root);
+        if (diagnosticsMode === "schema") schemaDiagnostics = validateParsedDocument(document, root);
       } catch {
         /*
          * validateParsedDocument should never throw, but if it does (e.g. a
@@ -692,10 +705,10 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
 
       monaco.editor.setModelMarkers(model, "schema-editor", markers);
       diagnosticSnapshot.current = { version: modelVersion, diagnostics: editorDiagnostics };
-      setValidationStatus(root === undefined ? "Syntax checked" : "Checked");
+      setValidationStatus(root === undefined || diagnosticsMode === "syntax" ? "Syntax checked" : "Checked");
       onDiagnosticsRef.current?.(editorDiagnostics);
     }, 0);
-  }, []);
+  }, [showDiagnostics, readOnly, diagnosticsMode]);
 
   const scheduleDiagnostics = useCallback(() => {
     ++diagnosticsVersionRef.current;
@@ -704,8 +717,9 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
       clearTimeout(diagnosticsTimerRef.current);
     }
 
+    if (!showDiagnostics || readOnly) { runDiagnostics(); return; }
     diagnosticsTimerRef.current = setTimeout(runDiagnostics, Number.isFinite(diagnosticsDebounceMs) ? Math.max(0, diagnosticsDebounceMs) : DEFAULT_DIAGNOSTICS_DEBOUNCE);
-  }, [runDiagnostics, diagnosticsDebounceMs]);
+  }, [runDiagnostics, diagnosticsDebounceMs, showDiagnostics, readOnly]);
   useEffect(() => {
     scheduleRef.current = scheduleDiagnostics;
     scheduleDiagnostics();
@@ -1279,7 +1293,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
 
       {showPlaceholder && <div className="pde-placeholder">{placeholder}</div>}
 
-      {showDiagnostics && (
+      {showDiagnostics && !readOnly && (
         <DiagnosticsBar
           editorRef={internalEditorRef}
           monaco={monacoRef}

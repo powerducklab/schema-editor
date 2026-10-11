@@ -59,10 +59,11 @@ describe("editor lifecycle", () => {
   it("checks syntax without a schema", async () => {
     render(<SchemaEditor value="{" language="json" />); await settle(); expect(state.markers).toHaveLength(1);
   });
-  it("disables fixes in read-only mode", async () => {
+  it("skips diagnostic work in read-only mode", async () => {
     render(<SchemaEditor value="{}" language="json" readOnly schema={{ required: ["name"], properties: { name: { type: "string" } } }} />);
-    await settle(); fireEvent.click(screen.getByRole("button", { name: "Toggle diagnostics" }));
-    expect((screen.getByRole("button", { name: "Fix" }) as HTMLButtonElement).disabled).toBe(true);
+    await settle();
+    expect(screen.queryByRole("button", { name: "Fix" })).toBeNull();
+    expect(state.markers).toEqual([]);
   });
   it("reports skipped large-document validation", async () => {
     render(<SchemaEditor value={" ".repeat(512001)} language="json" schema={false} />); await settle();
@@ -164,4 +165,25 @@ describe("inline action cancellation", () => {
     view.unmount(); log.mockRestore();
     state.editor.getAction.mockReturnValue({ run: () => Promise.resolve() });
   });
+});
+
+it("disabling diagnostics clears markers and skips invalid syntax", async()=>{
+ const view=render(<SchemaEditor value="{" language="json" />); await settle();
+ expect(state.markers).toHaveLength(1);
+ view.rerender(<SchemaEditor value="{" language="json" showDiagnostics={false} />); await settle();
+ expect(state.markers).toEqual([]);
+});
+it("syntax mode retains syntax checks without meta-schema validation", async()=>{
+ const view=render(<SchemaEditor value="{}" language="json" schema={false} diagnosticsMode="syntax" />);await settle();
+ expect(state.markers).toEqual([]);
+ view.rerender(<SchemaEditor value="{" language="json" schema={false} diagnosticsMode="syntax" />);await settle();
+ expect(state.markers).toHaveLength(1);
+});
+
+it("disabled diagnostics do not emit on every keystroke", async()=>{
+ const changed=vi.fn();
+ const view=render(<SchemaEditor value="{}" language="json" showDiagnostics={false} onDiagnostics={changed}/>);await settle();
+ const calls=changed.mock.calls.length;
+ for(let i=0;i<20;i++)view.rerender(<SchemaEditor value={String(i)} language="json" showDiagnostics={false} onDiagnostics={changed}/>);
+ await settle();expect(changed).toHaveBeenCalledTimes(calls);
 });
