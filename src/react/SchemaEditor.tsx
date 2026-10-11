@@ -1236,7 +1236,7 @@ export function SchemaEditor(props: SchemaEditorProps): JSX.Element {
       },
       /* Native inline ghost text + popup completion. */
       suggestOnTriggerCharacters: enableCompletion,
-      suggest: { preview: true, previewMode: "prefix" },
+      suggest: { preview: enableInlineSuggestions, previewMode: "prefix" },
       quickSuggestions: {
         other: enableCompletion,
         comments: false,

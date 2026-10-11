@@ -187,3 +187,22 @@ it("disabled diagnostics do not emit on every keystroke", async()=>{
  for(let i=0;i<20;i++)view.rerender(<SchemaEditor value={String(i)} language="json" showDiagnostics={false} onDiagnostics={changed}/>);
  await settle();expect(changed).toHaveBeenCalledTimes(calls);
 });
+
+
+describe("ghost preference", () => {
+  it("toggles inline and popup ghost previews without disabling completion or remounting", () => {
+    const view = render(<SchemaEditor value="name: " language="yaml" />);
+    const path = state.props.path;
+    expect(state.props.options.inlineSuggest.enabled).toBe(true);
+    expect(state.props.options.suggest.preview).toBe(true);
+    view.rerender(<SchemaEditor value="name: " language="yaml" enableInlineSuggestions={false} />);
+    expect(state.props.options.inlineSuggest.enabled).toBe(false);
+    expect(state.props.options.suggest.preview).toBe(false);
+    expect(state.props.options.suggestOnTriggerCharacters).toBe(true);
+    expect(state.props.path).toBe(path);
+    view.rerender(<SchemaEditor value="name: " language="yaml" enableInlineSuggestions />);
+    expect(state.props.options.inlineSuggest.enabled).toBe(true);
+    expect(state.props.options.suggest.preview).toBe(true);
+    expect(state.props.path).toBe(path);
+  });
+});
